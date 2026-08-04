@@ -1,2 +1,5 @@
 data/
 __pycache__/
+
+# dryforge 로컬 계약 아카이브 (프로젝트 하네스 문서는 추적한다)
+.dryforge/
