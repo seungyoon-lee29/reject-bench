@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/continuity.py\" load",
+            "timeout": 10,
+            "statusMessage": "핸드오프 주입"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/continuity.py\" capture",
+            "timeout": 10,
+            "statusMessage": "compact 직전 핸드오프 저장"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/continuity.py\" cleanup",
+            "timeout": 10,
+            "statusMessage": "임시 핸드오프 정리"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "HANDOFF_FILE": "HANDOFF.md"
+  }
+}

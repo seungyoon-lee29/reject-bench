@@ -1,0 +1,72 @@
+# gpt-5.6-sol currently reports an effective 258,400-token window.
+# Compact at 180,880 tokens (70% used, approximately 30% remaining).
+# The handoff gate starts earlier, at 40% remaining, so HANDOFF.md is written first.
+model_auto_compact_token_limit = 180880
+
+[features]
+hooks = true
+
+[[hooks.PreCompact]]
+matcher = "^(manual|auto)$"
+
+[[hooks.PreCompact.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" precompact'
+timeout = 10
+statusMessage = "HANDOFF 갱신 확인 후 compact"
+
+[[hooks.PostCompact]]
+matcher = "^(manual|auto)$"
+
+[[hooks.PostCompact.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" reset'
+timeout = 10
+statusMessage = "다음 HANDOFF 주기 준비"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" prompt'
+timeout = 10
+statusMessage = "컨텍스트 잔여량 확인"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" stop'
+timeout = 10
+statusMessage = "HANDOFF 선행 여부 확인"
+
+[[hooks.SessionStart]]
+matcher = "^(startup|resume|compact)$"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/continuity.py" load'
+timeout = 10
+statusMessage = "핸드오프 주입"
+additionalContextLimit = 16000
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" start'
+timeout = 10
+statusMessage = "HANDOFF 게이트 초기화"
+
+[[hooks.SessionEnd]]
+matcher = "^other$"
+
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/continuity.py" cleanup'
+timeout = 3
+statusMessage = "임시 핸드오프 정리"
+
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = 'HANDOFF_FILE=HANDOFF.md python3 "$HOME/.claude/hooks/handoff/gate.py" cleanup'
+timeout = 3
+statusMessage = "HANDOFF 게이트 정리"
