@@ -9,7 +9,7 @@
 - `[x]` 완료 및 검증됨
 - `[?]` 외부 상태나 자연 사건을 기다림
 
-현재 frontier는 **D0 문서 승인**이다. 승인 전 D1 이후를 시작하지 않는다.
+현재 frontier는 **T1 v7 도메인 계약**이다. D0 승인과 D1 기존 구현 정리는 완료됐다.
 
 ## D0 — v7 문제·계약 승인
 
@@ -27,12 +27,12 @@
 
 전용 정리 커밋 하나에서:
 
-- [ ] `rejectbench/`, `tests/`, `conftest.py`, `docs/형식-표준.md` 삭제
-- [ ] v0 baseline 생성·후보 규칙·기존 형식 파서 등 구현 전용 코드가 남지 않았는지 검색
-- [ ] 실측 원천·baseline·연구 문서·연속성 훅이 보존됐는지 확인
-- [ ] `hooks/collect.py`는 새 기록기 cutover 전까지 유지
-- [ ] 새 구현을 위한 최소 Python 프로젝트 골격만 남김
-- [ ] 정리 커밋 생성
+- [x] `rejectbench/`, `tests/`, `conftest.py`, `docs/형식-표준.md` 삭제
+- [x] v0 baseline 생성·후보 규칙·기존 형식 파서 등 구현 전용 코드가 남지 않았는지 검색
+- [x] 실측 원천·baseline·연구 문서·연속성 훅이 보존됐는지 확인
+- [x] `hooks/collect.py`는 새 기록기 cutover 전까지 유지
+- [x] 새 구현을 위한 최소 Python 프로젝트 골격만 남김
+- [x] 정리 커밋 생성
 
 검증: 삭제 manifest와 `git diff --name-status`, 보존 파일 존재 확인, 연속성 훅 회귀 검사.
 
