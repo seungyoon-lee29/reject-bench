@@ -1,5 +1,5 @@
 data/
 __pycache__/
 
-# dryforge 로컬 계약 아카이브 (프로젝트 하네스 문서는 추적한다)
-.dryforge/
+# dryforge 계약 문서 3종(spec/plan/handoff)은 추적한다 — worktree만 제외 (v2 정정)
+.dryforge/worktrees/
