@@ -18,11 +18,11 @@
 
 v7은 `GuardSpec → GuardEvent → PolicyVerdict → UtilityReview → GuardDecision → Report` 흐름이다. LLM은 정책 일치성만, 사용자는 실제 유용성과 `keep | modify | remove`를 판단한다. `operation`, `test`, `unknown`은 생성 시점부터 분리하며 시험 사건은 기술 검증에만 쓴다.
 
-승인된 v7 문서는 `63dba99`에 커밋했다. 기존 준비/T1 구현 11개 파일과 남은 bytecode cache를 삭제했고, Python·환경 예시는 v7 최소 골격에 맞췄다. 삭제 내용은 git 이력에서 복구 가능하다. 실측 원천·baseline·연구/문제정의·소급 매니페스트·연속성 훅·`hooks/collect.py`는 보존했다. 연속성 훅 단독 회귀와 현재 전체 pytest가 각각 `10 passed`, `uv lock --check`, 문서 링크, 삭제/보존 manifest, `git diff --check`가 통과했다.
+승인된 v7 문서는 `63dba99`에 커밋했다. 기존 준비/T1 구현 11개 파일과 남은 bytecode cache를 삭제한 D1 정리 커밋은 `28fa676`이다. Python·환경 예시는 v7 최소 골격에 맞췄다. 삭제 내용은 git 이력에서 복구 가능하다. 실측 원천·baseline·연구/문제정의·소급 매니페스트·연속성 훅·`hooks/collect.py`는 보존했다. 연속성 훅 단독 회귀와 현재 전체 pytest가 각각 `10 passed`, `uv lock --check`, 문서 링크, 삭제/보존 manifest, `git diff --check`가 통과했다. 병렬 리뷰는 Spec 발견 0건, Standards 낮음 1건이었고, 실행 상태를 plan·루트 HANDOFF에 집중시키는 수정 후 기존 지적과 후속 HANDOFF 형식 지적을 모두 해소했다.
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-D1 변경을 전용 정리 커밋으로 고정한 뒤 `63dba99` 기준 Standards/Spec 코드리뷰를 실행한다. 발견 사항이 없거나 모두 해소되면 T1 도메인 계약 착수 직전에서 멈춘다.
+사용자가 계속 진행을 요청하면 `.dryforge/plan.md` T1의 첫 행동으로 새 v7 레코드 스키마 테스트 파일을 만들고 GuardSpec 필수 필드·정규화 해시 계약부터 red-green으로 고정한다.
 
 ## 미결 결정
 

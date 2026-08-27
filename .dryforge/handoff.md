@@ -74,14 +74,14 @@ Reject Bench는 프로젝트 고유 가드를 여러 AI 코딩 세션에서 운�
 - 각 연속성 회귀 테스트
 - `.claude/settings.json`, `.codex/config.toml`
 
-### D1에서 폐기 완료
+### 기존 구현 폐기 계약
 
 - 기존 `rejectbench/` 구현
 - 기존 `tests/`와 `conftest.py`
 - `docs/형식-표준.md`
 - v0 baseline 생성·후보 규칙·T1 파서 등 구현 전용 코드
 
-위 파일은 작업 트리에서 삭제했고 git 이력에만 보존한다.
+위 파일은 D1에서 작업 트리에서 삭제하고 git 이력에만 보존한다. 실행 완료 상태는 `.dryforge/plan.md`와 루트 `HANDOFF.md`만 기록한다.
 
 `hooks/collect.py`는 새 기록기의 실제 cutover까지 유지한다. 과거 `.dryforge` v6 문서는 현재 파일로 교체되며, 내용은 git 이력에서만 보존된다.
 
