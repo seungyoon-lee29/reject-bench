@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "captured_at": "2026-08-27T05:00:27Z",
+  "source": "events.jsonl",
+  "prefix_bytes": 745537,
+  "prefix_lines": 2812,
+  "sha256": "06327160934ad401d22c8d19ab13762ced49b1ba33a5a3fc24b55e69a0ab00ab"
+}
