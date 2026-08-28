@@ -1,8 +1,10 @@
-# 핸드오프 — 적대 리뷰·포트폴리오 인터뷰 반영 완료, 맷리뷰 대기 (2026-08-28)
+# 핸드오프 — 맷리뷰 완료·finding 정리 반영, T1 착수 대기 (2026-08-28)
 
 ## 지금 하던 것
 
-T1 착수 전 grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하고 정본에 반영했다. 결정 원장·finding 매핑 전량은 `docs/문제정의/07-포트폴리오-인터뷰.md`.
+반영 커밋 9cc3afd(기준점 9120547)를 mattpocock code-review 2축으로 검토하고, 권고 finding을 정본에 정리했다. 결과: 차단급 0. 정리 적용분(비커밋 워킹트리) — ① A-F26 항진 절("참조 GuardSpec이 존재하며") 삭제: `spec.md`·`기획-입력.md`·06 지표 정의 3곳 ② 출고선 3요소 복원: `plan.md` T6 완료 조건에 '정직한 상태 보고' 추가, `CONTEXT.md` 출고선에 '(원수 병기)' 추가 ③ 최대 주장 문구 "내 저장소에서"→"내 저장소들에서"(Q1 복수 저장소 전제): spec·06·기획-입력·README·`.dryforge/handoff.md` 5곳. 잔여 판단 여지 항목(문서 중복 서술, CONTEXT 자기선언, 외부 저장소 용어)은 미적용 — 필요 시 별도 결정.
+
+그 전 단계: grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하고 정본에 반영했다. 결정 원장·finding 매핑 전량은 `docs/문제정의/07-포트폴리오-인터뷰.md`.
 
 핵심 결정: ① 관측 대상 = 실존 가드 2종(전역 `block-dangerous-git.sh` + reply-gate `protect-live-reports.sh`), 저장은 reject-bench 중앙 ② 순서 = T1~T3 먼저 → 관찰 프로토콜 고정 → 관측창 오픈 → **그 뒤에** reply-gate 배포(1차 관측 무대) ③ 카드 C 출고선 = T6 기술 완료 + 관측창 가동 + 정직한 상태 보고 ④ origin 기본 `operation`(세션 test 플래그 부재 시) + 검토 단계 `test` 강등 amendment ⑤ 성공 판정 보완 세트 전부(양식 선등록·기준선 측정·종료 2축·용어 통일·판정기 교정) ⑥ 판정 enum → `correct_block | incorrect_block | insufficient_context` ⑦ MCP는 T7 선택 증분(O1 대기 구간) ⑧ 이름 유지 + bench=판사석 재정의. 기각 3건(B-F-25·B-F-10·B-F-22)은 사유와 함께 07에 기록.
 
@@ -10,12 +12,11 @@ T1 착수 전 grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**맷리뷰**: mattpocock code-review(Standards/Spec 2축)로 이 반영 커밋을 검토한다 — 기준점은 반영 커밋 직전, Spec 축의 기준 문서는 `07-포트폴리오-인터뷰.md`와 `docs/v7-기획-적대리뷰.md`. 리뷰 통과 후 T1(red-green, GuardSpec 계약) 착수.
+**리뷰 정리분 커밋 확인 후 T1 착수**: 워킹트리의 정리 반영(8파일)을 커밋하고, T1 도메인 계약(GuardSpec)을 red-green으로 시작한다. 판정 가능 가드 정의는 항진 절 삭제 후 문안(`spec.md` §대표 지표)이 정본이다.
 
 ### suggested skills
 
-- `mattpocock-skills:code-review`: 반영 커밋의 Standards/Spec 2축 검토
-- `mattpocock-skills:tdd`: (리뷰 뒤) T1 도메인 계약을 red-green으로
+- `mattpocock-skills:tdd`: T1 도메인 계약을 red-green으로
 
 ## 미결 결정
 
