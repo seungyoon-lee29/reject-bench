@@ -1,45 +1,39 @@
-# 핸드오프 — D1 기존 구현 폐기 완료, T1 대기 (2026-08-27)
+# 핸드오프 — 적대 리뷰·포트폴리오 인터뷰 반영 완료, 맷리뷰 대기 (2026-08-28)
 
 ## 지금 하던 것
 
-문제정의 재인터뷰의 공유 이해가 끝났고, 구현을 건드리지 않은 채 v7 문서를 백지에서 다시 썼다. 변경 문서 9개의 로컬 Markdown 링크 검사, 필수 문서 존재 검사, `git diff --check`가 모두 통과했다. 문서-only 변경이므로 pytest는 실행하지 않았다. **사용자가 v7 문서를 승인해 D0 게이트가 닫혔다.**
+T1 착수 전 grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하고 정본에 반영했다. 결정 원장·finding 매핑 전량은 `docs/문제정의/07-포트폴리오-인터뷰.md`.
 
-- 현재 문제정의 정본: `docs/문제정의/06-v7-문제정의.md`
-- 문제정의 절차/상태: `docs/문제정의/00-계획.md`
-- 기획 불변 입력: `기획-입력.md`
-- v7 행동 계약: `.dryforge/spec.md`
-- v7 실행 순서: `.dryforge/plan.md`
-- 설계 관장/Foundation: `.dryforge/handoff.md`
-- 현재 안내: `README.md`
+핵심 결정: ① 관측 대상 = 실존 가드 2종(전역 `block-dangerous-git.sh` + reply-gate `protect-live-reports.sh`), 저장은 reject-bench 중앙 ② 순서 = T1~T3 먼저 → 관찰 프로토콜 고정 → 관측창 오픈 → **그 뒤에** reply-gate 배포(1차 관측 무대) ③ 카드 C 출고선 = T6 기술 완료 + 관측창 가동 + 정직한 상태 보고 ④ origin 기본 `operation`(세션 test 플래그 부재 시) + 검토 단계 `test` 강등 amendment ⑤ 성공 판정 보완 세트 전부(양식 선등록·기준선 측정·종료 2축·용어 통일·판정기 교정) ⑥ 판정 enum → `correct_block | incorrect_block | insufficient_context` ⑦ MCP는 T7 선택 증분(O1 대기 구간) ⑧ 이름 유지 + bench=판사석 재정의. 기각 3건(B-F-25·B-F-10·B-F-22)은 사유와 함께 07에 기록.
 
-정본 문제 문장:
-
-> 여러 AI 코딩 세션에서 지속형 가드를 운영하는 1인 개발자는, 가드 발동 사건과 당시 맥락이 구조화되어 남지 않아 그 가드가 명시 정책대로 막았는지와 실제로 도움이 됐는지 검증할 수 없고, 결국 기억과 흩어진 오류 로그에 의존해 가드를 유지·수정·제거한다.
-
-v7은 `GuardSpec → GuardEvent → PolicyVerdict → UtilityReview → GuardDecision → Report` 흐름이다. LLM은 정책 일치성만, 사용자는 실제 유용성과 `keep | modify | remove`를 판단한다. `operation`, `test`, `unknown`은 생성 시점부터 분리하며 시험 사건은 기술 검증에만 쓴다.
-
-승인된 v7 문서는 `63dba99`에 커밋했다. 기존 준비/T1 구현 11개 파일과 남은 bytecode cache를 삭제한 D1 정리 커밋은 `28fa676`이다. Python·환경 예시는 v7 최소 골격에 맞췄다. 삭제 내용은 git 이력에서 복구 가능하다. 실측 원천·baseline·연구/문제정의·소급 매니페스트·연속성 훅·`hooks/collect.py`는 보존했다. 연속성 훅 단독 회귀와 현재 전체 pytest가 각각 `10 passed`, `uv lock --check`, 문서 링크, 삭제/보존 manifest, `git diff --check`가 통과했다. 병렬 리뷰는 Spec 발견 0건, Standards 낮음 1건이었고, 실행 상태를 plan·루트 HANDOFF에 집중시키는 수정 후 기존 지적과 후속 HANDOFF 형식 지적을 모두 해소했다.
+반영: 06·spec·plan·기획-입력 개정 / 07·`CONTEXT.md`·`docs/adr/0001-관측대상-실존-가드-앵커.md` 신설 / README·00-계획·소급 매니페스트·`.dryforge/handoff.md`·적대리뷰 배너 위생 / `포지션찾기/포트폴리오-전략.md` 갱신(타 저장소 — 커밋은 사용자 소관).
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-사용자가 계속 진행을 요청하면 `.dryforge/plan.md` T1의 첫 행동으로 새 v7 레코드 스키마 테스트 파일을 만들고 GuardSpec 필수 필드·정규화 해시 계약부터 red-green으로 고정한다.
+**맷리뷰**: mattpocock code-review(Standards/Spec 2축)로 이 반영 커밋을 검토한다 — 기준점은 반영 커밋 직전, Spec 축의 기준 문서는 `07-포트폴리오-인터뷰.md`와 `docs/v7-기획-적대리뷰.md`. 리뷰 통과 후 T1(red-green, GuardSpec 계약) 착수.
+
+### suggested skills
+
+- `mattpocock-skills:code-review`: 반영 커밋의 Standards/Spec 2축 검토
+- `mattpocock-skills:tdd`: (리뷰 뒤) T1 도메인 계약을 red-green으로
 
 ## 미결 결정
 
-1. **T1 v7 도메인 계약 착수** — 다음 frontier. GuardSpec부터 새 테스트와 구현을 백지에서 시작
-2. **v0 수집기 퇴역 시점** — `hooks/collect.py`는 새 기록기가 실제 가드에 연결되고 관측 공백이 없음을 확인할 때까지 유지
-3. **판정 API와 비용 승인** — T4 직전 환경변수 존재와 비용 발생 승인을 확인. 비밀 저장 금지
-4. **관찰 종료 조건의 구체값** — O1 시작 전에 캘린더 종료 조건과 평가 질문을 고정
-5. **외부 검증** — 내부 자연 운영 수명주기 결정 1건 뒤에만 진행
+1. **관찰 프로토콜의 구체 내용**(종료 조건 문안·평가 문항) — T3 실배선 전 게이트에서 작성·고정. 고정 시점 자체는 확정됨
+2. **새 어댑터의 Codex 지원 여부** — T3 설계에서 결정하고 관측 범위 선언에 명시
+3. **v0 `hooks/collect.py` 퇴역** — T3 배선 목록 대사(전역 settings.json 4이벤트 vs 새 배선) 후 별도 결정
+4. **판정 API 제공자·비용 승인** — T4 직전. 첫 과금 호출 전 명시 승인 게이트는 T4 태스크로 확정됨
+5. **외부 검증(X1)** — O2 뒤에만
 
 ## 함정
 
-- 이전 `rejectbench/`와 `tests/`는 삭제됐다. 이름이 같더라도 T1 이후 생기는 파일은 v7 계약으로 새로 작성해야 하며 과거 코드를 복사하지 않는다.
-- `docs/문제정의/05-최종-문제정의.md`와 과거 리서치의 “거부 장면 1개 + 오탐률”, 공개 원장, 선등록 주장은 역사 기록이다. 현재 정본은 06이다.
-- 자연 운영 사건이 없으면 기술 E2E가 통과해도 사용자 가치는 미검증이다. 강제 발동이나 소급 2건으로 분모를 채우지 않는다.
-- 정책 일치성과 사용자 유용성을 단일 오탐률로 합치지 않는다.
-- `unknown`을 근거 없이 `operation`으로 승격하지 않는다. 정정은 append amendment로 남긴다.
-- 연속성 훅(`hooks/continuity.py`, `hooks/codex_handoff_gate.py`와 테스트)은 구현 폐기 대상이 아니다.
-- 실측 원천·baseline·연구/문제정의·소급 발췌 매니페스트는 보존 대상이다.
-- `.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업이다. 건드리지 않는다.
-- `.codex/config.toml`은 현재 전역 훅 사본을 참조하므로 저장소 연속성 파일과의 정합 문제는 별도 작업이다. 이번 v7 문서 작업 범위가 아니다.
+- **reply-gate 배포 작업을 T3 완료 전에 시작하지 않는다.** 기록기 없는 발동은 다시 유실된다 — 이 순서가 `docs/adr/0001`의 핵심이다
+- `docs/v7-기획-적대리뷰.md`는 이제 역사 기록이다(상단 배너). 본문 줄 번호는 개정 전 문서 기준이므로 현행 문서와 대조하지 말 것
+- 판정 enum·지표 정의·origin 규칙은 이번에 확정된 spec이 정본이다. 06·spec·plan·기획-입력이 어긋나 보이면 관장 표(`.dryforge/handoff.md`)의 서열: 문제=06, 불변 입력=기획-입력, 행동=spec, 순서=plan
+- 시험·강제 발동은 반드시 세션 test 플래그 아래에서 — 플래그 없는 발동은 `operation`으로 기록된다
+- `포지션찾기` 저장소의 전략 문서 변경은 커밋하지 않았다 — 사용자 소관
+- 시험·강제 발동·소급 2건은 기술 검증에만 쓴다. 자연 운영 가치의 분자·분모에 넣지 않는다
+- `unknown` 승격 금지·amendment 원칙 유지. 정정은 원본을 덮지 않는다
+- T1 테스트는 임시 디렉터리만 사용하고 실제 운영 저장소에 쓰지 않는다
+- 연속성 훅과 `hooks/collect.py`는 폐기 대상이 아니다
+- `.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업이다. 건드리지 않는다

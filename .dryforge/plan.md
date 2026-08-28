@@ -1,6 +1,6 @@
 # Reject Bench v7 — 실행 계획
 
-작성 2026-08-27. 행동 계약은 [`spec.md`](spec.md), 문제정의는 [`docs/문제정의/06-v7-문제정의.md`](../docs/문제정의/06-v7-문제정의.md)가 정본이다.
+작성 2026-08-27. 개정 2026-08-28 — 적대 리뷰 수용분과 포트폴리오 인터뷰([`docs/문제정의/07-포트폴리오-인터뷰.md`](../docs/문제정의/07-포트폴리오-인터뷰.md)) 결정 반영. 행동 계약은 [`spec.md`](spec.md), 문제정의는 [`docs/문제정의/06-v7-문제정의.md`](../docs/문제정의/06-v7-문제정의.md)가 정본이다.
 
 ## 상태 표시
 
@@ -9,7 +9,11 @@
 - `[x]` 완료 및 검증됨
 - `[?]` 외부 상태나 자연 사건을 기다림
 
-현재 frontier는 **T1 v7 도메인 계약**이다. D0 승인과 D1 기존 구현 정리는 완료됐다.
+현재 frontier는 **T1 v7 도메인 계약**이다. D0 승인, D1 기존 구현 정리, D2 리뷰·인터뷰 반영은 완료됐다.
+
+## 순서 원칙 — 기록기가 관측 무대보다 먼저다
+
+관측 대상 가드 2종의 자연 발동은 reply-gate 배포 잔여 작업에서 가장 확실하게 기대된다. 기록기(T3)가 서기 전에 그 작업을 하면 발동이 다시 유실되므로, **reply-gate 배포 작업은 T3 완료(관측창 오픈) 후에 시작한다.** T4~T6은 세션 뒤 배치 처리라 배포 작업과 병행 구현할 수 있다. 카드 C의 최소 출고선은 T6 기술 완료 + 관측창 가동 + 정직한 상태 보고다(07 Q3).
 
 ## D0 — v7 문제·계약 승인
 
@@ -36,14 +40,24 @@
 
 검증: 삭제 manifest와 `git diff --name-status`, 보존 파일 존재 확인, 연속성 훅 회귀 검사.
 
+## D2 — 적대 리뷰·포트폴리오 인터뷰 반영
+
+의존: D1. 2026-08-28 수행.
+
+- [x] v7 기획 전체 적대 리뷰 (블라인드 리뷰어 2 + 메인 교차 — `docs/v7-기획-적대리뷰.md`)
+- [x] 포트폴리오 인터뷰로 finding 수용/기각 결정 (`docs/문제정의/07-포트폴리오-인터뷰.md`)
+- [x] 06·spec·plan·기획-입력 개정, CONTEXT.md·ADR 0001 신설
+- [x] 문서 링크·참조 검사
+
 ## T1 — v7 도메인 계약
 
-의존: D1.
+의존: D2.
 
-- [ ] GuardSpec, GuardEvent, PolicyVerdict, UtilityReview, GuardDecision, LossRecord, Amendment 스키마를 새로 정의
-- [ ] enum·필수 필드·참조 무결성·정규화 해시 규칙 구현
-- [ ] 단순 append 저장소와 테스트용 임시 저장소 경계 구현
-- [ ] 스키마/참조/불변식 테스트
+- [ ] GuardSpec, GuardEvent, PolicyVerdict, UtilityReview, GuardDecision, LossRecord, Amendment 스키마를 새로 정의 (enum: `correct_block | incorrect_block | insufficient_context`, `unregistered` 경로, `drift`·`post-remove` 표시 포함)
+- [ ] enum·필수 필드·참조 무결성·정규화 해시 규칙 구현 (해시 도메인 = 의미 5필드)
+- [ ] origin 결정표 구현: 세션 test 플래그 → `test`, 플래그 부재 → `operation` + `default_inherited`, 실행 맥락 없음 → `unknown`, `test` 강등 amendment
+- [ ] 단순 append 저장소와 테스트용 임시 저장소 경계 구현 (저장 위치 = reject-bench 중앙)
+- [ ] 스키마/참조/불변식 테스트 (분자⊆분모, 보류값·미처리 구분 포함)
 
 완료 조건: spec 3절의 모든 엔티티와 참조가 테스트로 고정되고 실제 운영 경로에는 쓰지 않는다.
 
@@ -52,27 +66,32 @@
 의존: T1.
 
 - [ ] GuardSpec 생성·검증 CLI
-- [ ] 의미 변경 시 새 버전을 강제하고 덮어쓰기 차단
-- [ ] 정규화 content hash 생성
-- [ ] 허용/차단 예시와 예외의 최소 품질 검증
-- [ ] 존재하지 않거나 사건보다 늦은 spec 참조 차단
+- [ ] 의미 변경 시 새 버전을 강제하고 덮어쓰기 차단 (내용 비교 = content_hash 비교)
+- [ ] 정규화 content hash 생성 (의미 5필드 한정)
+- [ ] 예시·예외 최소 품질 검증: `policy` 비어 있지 않음, `allow_examples`·`block_examples` 각 1건 이상
+- [ ] `enforcement_ref`(가드 스크립트 경로·파일 해시) 기록
+- [ ] 존재하지 않거나 사건보다 늦은 spec 참조 차단 (append 순서 근거 병용)
+- [ ] **관측 대상 가드 2종의 GuardSpec 실제 등록**: 전역 `block-dangerous-git.sh`, reply-gate `protect-live-reports.sh`
 
-완료 조건: 두 버전의 시험 가드에서 과거 사건이 항상 과거 해시를 참조함을 검증.
+완료 조건: 두 버전의 시험 가드에서 과거 사건이 항상 과거 해시를 참조함을 검증하고, 실존 가드 2종이 등록돼 있다.
 
 ## T3 — 기록기·어댑터·출처·비밀 제거
 
 의존: T2.
 
 - [ ] 비블로킹 원자 append 기록기
-- [ ] `operation | test | unknown` 출처와 근거 기록
-- [ ] 명시적 test mode가 전 구간에서 보존되도록 구현
-- [ ] 최소 행동 뼈대 추출과 적재 시점 비밀 제거
-- [ ] 기록 실패·부분 기록 LossRecord
+- [ ] origin 결정표(`operation | test | unknown`)와 `origin_evidence` 기록
+- [ ] 세션 test 플래그가 전 구간에서 보존되도록 구현
+- [ ] 구조화 행동 요약(도구 이름·명령 동사·대상 경로·heredoc 여부)과 가드가 낸 차단 사유 추출, 적재 시점 비밀 제거 — 가드 2종별 판정 최소 필드는 spec 3.2·3.3 계약을 따른다
+- [ ] `unregistered` 경로: 미등록 가드 발동을 버리지 않고 기록, 지표 제외
+- [ ] drift 감지: 기록 시 가드 스크립트 해시를 `enforcement_ref`와 대조
+- [ ] 기록 실패·부분 기록 LossRecord + 대체 매체 최소 흔적
 - [ ] 동시 append, 부분 쓰기, 정상 양성 대조, 운영 저장소 비접촉 테스트
-- [ ] 새 배선을 실제 지속형 가드 하나에 설치
-- [ ] cutover 후 관측 공백이 없음을 확인하고 v0 `hooks/collect.py` 퇴역을 별도 결정
+- [ ] **관찰 프로토콜 문서 작성·고정 — 실배선 전 게이트**: 종료 조건, 평가 질문, 응답 양식(확신 문항·복원 시간), 기준선 측정 절차, 관측 범위(런타임·저장소) 선언. 이후 변경은 사유 있는 append 수정으로만
+- [ ] **새 배선을 관측 대상 가드 2종 모두에 설치** (하나가 아니라 전부 — 커버리지 공백 방지). Codex 경로 지원 여부를 설계에서 결정하고 관측 범위 선언에 명시
+- [ ] 배선 위치 목록 문서화와 cutover 대사: v0 collect.py 배선(전역 settings.json 4이벤트)과 새 배선 목록을 대조해 관측 공백이 없음을 확인하고, v0 `hooks/collect.py` 퇴역은 별도 결정
 
-완료 조건: 기록기 실패가 가드의 원래 결과를 바꾸지 않고, 시험 사건이 운영 사건으로 저장되지 않는다.
+완료 조건: 기록기 실패가 가드의 원래 결과를 바꾸지 않고, 시험 사건이 운영 사건으로 저장되지 않으며, 관찰 프로토콜이 첫 운영 사건보다 먼저 고정돼 있다. **T3 완료 = 관측창 오픈 = reply-gate 배포 작업 착수 가능.**
 
 ## T4 — 세션 뒤 LLM 정책 판정
 
@@ -80,12 +99,13 @@
 
 - [ ] 판정 루브릭과 context bundle 직렬화 고정
 - [ ] GuardEvent + 정확한 GuardSpec만 입력하는 판정 실행기
+- [ ] 판정기 교정: allow/block 예시처럼 기대 판정이 알려진 입력으로 교정 검사, 교정 레코드 저장, 미교정 판정 병기
 - [ ] 모델·설정·rubric·bundle 해시 기록
-- [ ] 새 운영 사건 전수 선택, API 실패 pending, 임의 재샘플링 방지
+- [ ] 새 운영 사건 전수 선택, API 실패 미처리 유지, 임의 재샘플링 방지
 - [ ] 프롬프트 주입 방어와 `insufficient_context` 테스트
-- [ ] API 키는 환경변수로만 읽고 비용 발생 전 사용자 승인 상태 확인
+- [ ] API 키는 환경변수로만 읽고, 첫 과금 호출 전 사용자의 명시 승인을 확인하는 게이트 구현
 
-완료 조건: 고정 fixture에서 세 판정값과 pending 경로가 재현되고, 사용자 검토나 집계 정보가 입력 bundle에 포함되지 않는다.
+완료 조건: 고정 fixture에서 세 판정값과 미처리 경로가 재현되고, 사용자 검토나 집계 정보가 입력 bundle에 포함되지 않는다.
 
 ## T5 — 사용자 검토와 가드 결정
 
@@ -93,9 +113,11 @@
 
 - [ ] 새 운영 사건 전수 검토 큐
 - [ ] `useful | unnecessary | uncertain` append 기록
+- [ ] 검토 중 시험·강제 발동 확인 시 `test` 강등 amendment 경로
 - [ ] 가드별 세션·사건·두 판단 축을 함께 보는 최소 CLI/정적 뷰
-- [ ] `keep | modify | remove` 결정과 evidence id 연결
-- [ ] modify 시 새 GuardSpec 버전 강제
+- [ ] `keep | modify | remove` 결정과 evidence id 연결 (분자⊆분모 강제)
+- [ ] modify 시 새 GuardSpec 버전 강제와 `enforcement_ref` 반영 확인
+- [ ] remove 후 발동의 `post-remove` 표시
 - [ ] 결정 변경 이력 보존
 
 완료 조건: 시험 데이터로 네 가지 정책/유용성 조합을 모두 표현하고, 둘 이상의 운영 세션 조건을 우회할 수 없다.
@@ -104,38 +126,51 @@
 
 의존: T5.
 
-- [ ] 대표 지표와 세 진단 지표를 원수 `N/D`로 계산
-- [ ] 분모 0, pending, 소표본, test/unknown 제외 처리
-- [ ] 손실·부분 기록·수정 이력 병기
+- [ ] 대표 지표와 세 진단 지표를 원수 `N/D`로 계산 (판정 가능 가드 단일 정의, 분자⊆분모)
+- [ ] 분모 0, 보류값·미처리 분리, 소표본, test/unknown/unregistered 제외 처리
+- [ ] 손실·부분 기록·수정·강등 이력과 drift·post-remove 병기
+- [ ] 단측 증거 한계와 1인 자기측정 한계 문구 포함
 - [ ] 명시적 시험 가드로 전체 E2E 실행
 - [ ] 산출물에 `기술 검증용 test evidence` 표시
 - [ ] 운영 가치 미검증 상태를 그대로 보고
 
-완료 조건: 자동 테스트·CLI 스모크·실제 파일 산출 검증이 통과하고, 시험 사건이 운영 지표에 0건 포함된다.
+완료 조건: 자동 테스트·CLI 스모크·실제 파일 산출 검증이 통과하고, 시험 사건이 운영 지표에 0건 포함된다. **T6 완료 + 관측창 가동 = 카드 C 최소 출고선.**
+
+## T7 — 증거 조회 MCP 서버 (선택 증분)
+
+의존: T6. v1 완료 조건도 출고선 조건도 아니다. O1 관찰 대기 구간(자연 발동을 기다리는 캘린더 시간)에 구현한다.
+
+- [ ] 보고서·가드별 증거를 읽기 전용으로 노출하는 최소 MCP 서버
+- [ ] 쓰기 도구 없음 — 기록·판정·결정 경로는 기존 CLI만 사용
+- [ ] 홈 경로·세션 식별자 비노출 검증
+
+완료 조건: 읽기 전용 도구 호출로 보고서와 가드별 증거를 조회할 수 있고, 어떤 레코드도 변경할 수 없다.
 
 ## O1 — 자연 운영 관찰
 
-의존: T6. 캘린더 시간 필요.
+의존: T3(프로토콜 고정·배선). 캘린더 시간 필요. 1차 관측 무대는 reply-gate 배포 잔여 작업이다.
 
-- [ ] 관찰 시작 전에 종료 조건과 평가 질문 기록
+- [x] 관찰 프로토콜 고정은 T3 게이트로 이동 (첫 운영 사건 전 고정)
 - [?] 같은 가드가 서로 다른 여러 세션에서 자연 발동하기를 기다림
+- [ ] 첫 자연 사건에서 기준선 측정 1회: 도구 보고서를 보기 전에 transcript+git으로 먼저 복원하고 시간·복원도 기록
 - [ ] 매 세션 뒤 새 운영 사건 전수 정책 판정·사용자 검토
-- [ ] 강제 발동으로 표본을 채우지 않았는지 출처 감사
+- [ ] 강제 발동으로 표본을 채우지 않았는지 출처 감사 (본인 선언 기반 한계 명시)
+- [ ] 관측 도중 추가된 신규 가드 사건의 별도 표기
 
 종료 분기:
 
 - 자연 사건 조건 충족 → O2
-- 종료 시점까지 조건 미충족 → `운영 빈도 미검증` 기록 후 종료
+- 종료 시점까지 조건 미충족 → `운영 빈도 미검증` 기록 후 종료 (기술 상태는 별도 선언)
 
 ## O2 — 내부 수명주기 결정과 반증 평가
 
 의존: O1 조건 충족.
 
 - [ ] 한 가드의 `keep | modify | remove` 결정과 근거 기록
-- [ ] 결정 가능성·근거 복원 노력·결정 확신의 변화 평가
+- [ ] 선등록 양식으로 의사결정 시간·근거 복원 노력·결정 확신의 변화 평가 (기준선과 비교)
 - [ ] 검토 부담과 얻은 가치 비교
 - [ ] 대표/진단 지표를 원수와 함께 동결
-- [ ] 성공 또는 가설 실패를 주장 범위 안에서 서술
+- [ ] 기술 상태와 가치 상태를 각각 선언하고 주장 범위 안에서 서술
 
 완료 조건: 최소 사용자 가치 흐름 1건 또는 명시적 가치/채택 가설 실패 결론.
 
@@ -143,7 +178,7 @@
 
 의존: O2. v1 완료에 필수 아님.
 
-- [ ] 이미 지속형 가드를 운영하는 독립 사용자 모집
+- [ ] 이미 지속형 가드를 운영하는 독립 사용자 모집 (가드가 식별자 없이 훅·설정으로만 존재해도 대상)
 - [ ] 실제 저장소에서 전체 흐름 사용
 - [ ] 검토 부담·결정 변화·이탈 이유 수집
 - [ ] 실제 사용 전 일반화 금지
@@ -152,13 +187,15 @@
 
 권장 최소 커밋 순서:
 
-1. `docs: redesign reject bench around guard lifecycle decisions`
-2. `chore: retire pre-v7 implementation`
-3. `feat: define v7 domain records`
-4. `feat: version guard context`
-5. `feat: capture guard events with provenance`
-6. `feat: judge policy consistency after sessions`
-7. `feat: review utility and record guard decisions`
-8. `feat: report v7 evidence and technical e2e`
+1. `docs: redesign reject bench around guard lifecycle decisions` — 완료
+2. `chore: retire pre-v7 implementation` — 완료
+3. `docs: 적대 리뷰·포트폴리오 인터뷰 반영` — D2
+4. `feat: define v7 domain records`
+5. `feat: version guard context`
+6. `feat: capture guard events with provenance`
+7. `feat: judge policy consistency after sessions`
+8. `feat: review utility and record guard decisions`
+9. `feat: report v7 evidence and technical e2e`
+10. (선택) `feat: read-only evidence mcp server`
 
 관찰 결과는 구현 커밋과 분리한다. 커밋과 push는 별개이며, 외부 push는 사용자가 요청할 때만 한다.
