@@ -6,17 +6,17 @@
 
 그 전 단계: grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하고 정본에 반영했다. 결정 원장·finding 매핑 전량은 `docs/문제정의/07-포트폴리오-인터뷰.md`.
 
-핵심 결정: ① 관측 대상 = 실존 가드 2종(전역 `block-dangerous-git.sh` + reply-gate `protect-live-reports.sh`), 저장은 reject-bench 중앙 ② 순서 = T1~T3 먼저 → 관찰 프로토콜 고정 → 관측창 오픈 → **그 뒤에** reply-gate 배포(1차 관측 무대) ③ 카드 C 출고선 = T6 기술 완료 + 관측창 가동 + 정직한 상태 보고 ④ origin 기본 `operation`(세션 test 플래그 부재 시) + 검토 단계 `test` 강등 amendment ⑤ 성공 판정 보완 세트 전부(양식 선등록·기준선 측정·종료 2축·용어 통일·판정기 교정) ⑥ 판정 enum → `correct_block | incorrect_block | insufficient_context` ⑦ MCP는 T7 선택 증분(O1 대기 구간) ⑧ 이름 유지 + bench=판사석 재정의. 기각 3건(B-F-25·B-F-10·B-F-22)은 사유와 함께 07에 기록.
+핵심 결정: ① 관측 대상 = 실존 가드 2종(전역 `block-dangerous-git.sh` + reply-gate `protect-live-reports.sh`), 저장은 reject-bench 중앙 ② 순서 = T1~T3 먼저 → 관찰 프로토콜 고정 → 관측창 오픈 → **그 뒤에** reply-gate 배포(1차 관측 무대) ③ 카드 C 출고선 = T6 기술 완료 + 관측창 가동 + 정직한 상태 보고(원수 병기) ④ origin 기본 `operation`(세션 test 플래그 부재 시) + 검토 단계 `test` 강등 amendment ⑤ 성공 판정 보완 세트 전부(양식 선등록·기준선 측정·종료 2축·용어 통일·판정기 교정) ⑥ 판정 enum → `correct_block | incorrect_block | insufficient_context` ⑦ MCP는 T7 선택 증분(O1 대기 구간) ⑧ 이름 유지 + bench=판사석 재정의. 기각 3건(B-F-25·B-F-10·B-F-22)은 사유와 함께 07에 기록.
 
 반영: 06·spec·plan·기획-입력 개정 / 07·`CONTEXT.md`·`docs/adr/0001-관측대상-실존-가드-앵커.md` 신설 / README·00-계획·소급 매니페스트·`.dryforge/handoff.md`·적대리뷰 배너 위생 / `포지션찾기/포트폴리오-전략.md` 갱신(타 저장소 — 커밋은 사용자 소관).
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**T1 착수**: T1 도메인 계약(GuardSpec)을 red-green으로 시작한다. 판정 가능 가드 정의는 항진 절 삭제 후 문안(`spec.md` §대표 지표)이 정본이다.
+**T1 착수**: 사용자가 dryforge `go`를 직접 호출해 3-doc(`.dryforge/handoff·spec·plan`) 실행을 시작한다 — frontier는 T1 도메인 계약(GuardSpec, red-green). `go`는 `disable-model-invocation`이라 모델이 대신 호출할 수 없다. 판정 가능 가드 정의는 항진 절 삭제 후 문안(`spec.md` §대표 지표)이 정본이다.
 
 ### suggested skills
 
-- `mattpocock-skills:tdd`: T1 도메인 계약을 red-green으로
+- dryforge `go` (사용자 직접 호출): 3-doc 실행 — 웨이브 단위 구현 + 테스트 우선 검증 + 스펙 기준 리뷰
 
 ## 미결 결정
 
@@ -37,4 +37,5 @@
 - `unknown` 승격 금지·amendment 원칙 유지. 정정은 원본을 덮지 않는다
 - T1 테스트는 임시 디렉터리만 사용하고 실제 운영 저장소에 쓰지 않는다
 - 연속성 훅과 `hooks/collect.py`는 폐기 대상이 아니다
+- `docs/문제정의/01~05`·`.claude/skills/문제심사-*`는 폴더 정리로 지우지 않는다 — 01~05 보존은 정본 3중 결정(기획-입력:109 불변, spec §8, 00-계획:62), 심사 스킬 보존은 적대리뷰:134 "검토 후 보존"(07 Q6 비준)이며, 2026-08-28 정리 검토에서 사용자가 삭제 취소로 재확인했다. 포트폴리오 과정 증거물이다
 - `.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업이다. 건드리지 않는다
