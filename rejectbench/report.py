@@ -29,6 +29,7 @@ from pathlib import Path
 
 from rejectbench.dataset import Dataset
 from rejectbench.decision import build_guard_view, post_remove_event_ids
+from rejectbench.records import SchemaError
 from rejectbench.judge import CALIBRATION_FILENAME, load_calibrations
 from rejectbench.metrics import (
     Completion,
@@ -76,9 +77,10 @@ class Ratio:
     denominator: int
 
     def __post_init__(self):
-        assert 0 <= self.numerator <= self.denominator or (
-            self.denominator == 0 and self.numerator == 0
-        )
+        if not (0 <= self.numerator <= self.denominator):
+            raise SchemaError(
+                f"분자⊆분모 위반: {self.numerator}/{self.denominator}"
+            )
 
     @property
     def unverified(self) -> bool:

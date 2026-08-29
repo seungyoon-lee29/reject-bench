@@ -1,6 +1,6 @@
 # rejectbench 패키지 — 모듈 규칙
 
-v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/spec.md`이며, 여기는 코드만 봐서는 안 보이는 경계·불변식·함정을 적는다.
+v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/spec.md`다.
 
 ## 모듈 맵
 
@@ -35,7 +35,9 @@ v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/s
 - 배선 명령은 반드시 `uv run --project /Users/ian/workspace/reject-bench python -m rejectbench.wrapper …` 형태여야 한다. 맨 `python3 -m`은 패키지를 못 찾는다(package=false, pythonpath는 pytest 전용).
 - 전역 가드는 Bash 명령 문자열 **전문**을 패턴 매칭한다. 위험 패턴 텍스트가 포함된 픽스처·문서를 heredoc/echo로 쓰면 자기 차단된다 — 파일 도구(Write/Edit)로 쓸 것. (이 발동 자체는 도구가 기록한다.)
 - 판정 기본 설정 `{"temperature": 0}`은 모델이 거부할 수 있다 — 그 경우 미처리로 안전 실패하며, settings 주입으로 조정하고 `model_settings_hash`가 바뀐 재판정 규율을 따른다.
-- 같은 (spec·rubric·model·settings) 조합의 교정 실패 기록은 재사용된다 — 동일 설정 강제 재교정 경로는 없고, 설정을 바꾸면 자연히 재교정된다.
+- 같은 (spec·rubric·model·settings) 조합의 교정 실패 기록은 재사용된다 — 동일 설정 강제 재교정 경로는 없고, 설정을 바꾸면 자연히 재교정된다. 일시적 API 오류로 미통과가 박제될 수 있으니 그 경우 settings를 바꿔 재교정한다.
+- test 플래그가 켜져 있어도 실행 맥락(세션 식별)이 없으면 `unknown`이 우선이다 — spec §3.2 규칙 1의 자구("플래그 켜짐 → 항상 test")와 다른 보수적 선택이며, 필요하면 사유 있는 amendment로 `test` 강등해 정정한다.
+- `decide modify`에서 `--enforcement-script`를 생략하면 새 버전에 enforcement_ref가 없어 이후 발동이 구버전에 연결되고 반영 확인이 `unverifiable`로 뜬다 — modify 시 스크립트 경로를 항상 넘길 것.
 
 ## 테스트 규칙
 

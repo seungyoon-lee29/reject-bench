@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from rejectbench.dataset import Dataset
-from rejectbench.records import Origin, Utility, Verdict
+from rejectbench.records import Origin, SchemaError, Utility, Verdict
 
 
 class Status(StrEnum):
@@ -78,7 +78,8 @@ class Completion:
     decided_guard_ids: frozenset[str]
 
     def __post_init__(self):
-        assert self.decided_guard_ids <= self.decidable_guard_ids
+        if not self.decided_guard_ids <= self.decidable_guard_ids:
+            raise SchemaError("분자⊆분모 위반: 결정 가드가 판정 가능 집합 밖에 있다")
 
     @property
     def denominator(self) -> int:
