@@ -28,6 +28,7 @@ from rejectbench import (
     value_hash,
 )
 from rejectbench.judge import CALIBRATION_FILENAME
+from rejectbench.records import SchemaError
 from rejectbench.report import (
     BASELINE_FILENAME,
     REPORTS_DIRNAME,
@@ -172,7 +173,7 @@ class TestRatio:
         assert Ratio(numerator=2, denominator=2).render() == "2/2 (100.0%)"
 
     def test_numerator_must_be_subset_of_denominator(self):
-        with pytest.raises(AssertionError):
+        with pytest.raises(SchemaError):
             Ratio(numerator=2, denominator=1)
 
 
