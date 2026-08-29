@@ -116,3 +116,37 @@ def test_long_path_segments_survive():
 def test_scrub_is_idempotent():
     once = scrub_text("OPENAI_API_KEY=sk-live-abcdef0123456789 and Bearer abcdef123456")
     assert scrub_text(once) == once
+
+
+# ── 명령 전문 제거 (2026-08-29 사용자 결정: reason의 명령 부분은 저장하지 않는다) ──
+
+from rejectbench.scrub import redact_command_echo
+
+
+def test_blocked_echo_command_is_omitted_pattern_kept():
+    reason = (
+        "BLOCKED: 'git push --force origin main' matches dangerous pattern "
+        "'push --force'. The user has prevented you from doing this."
+    )
+    out = redact_command_echo(reason)
+    assert "<command omitted>" in out
+    assert "git push" not in out
+    assert "dangerous pattern 'push --force'" in out
+
+
+def test_blocked_echo_multiline_command_is_omitted():
+    reason = "BLOCKED: 'echo line1\nrm -rf x' matches dangerous pattern 'x'. tail"
+    out = redact_command_echo(reason)
+    assert "<command omitted>" in out
+    assert "line1" not in out
+
+
+def test_non_echo_reason_unchanged():
+    reason = "커밋된 라이브 실측 리포트는 사후 편집하지 않는다 — reports/evaluation-live-1.md"
+    assert redact_command_echo(reason) == reason
+
+
+def test_redact_is_idempotent():
+    reason = "BLOCKED: 'git clean -fd' matches dangerous pattern 'git clean -fd'. tail"
+    once = redact_command_echo(reason)
+    assert redact_command_echo(once) == once

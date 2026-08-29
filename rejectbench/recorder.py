@@ -37,7 +37,7 @@ from rejectbench.records import (
     LossRecord,
 )
 from rejectbench.registry import GuardRegistry, enforcement_ref_for
-from rejectbench.scrub import scrub_text
+from rejectbench.scrub import redact_command_echo, scrub_text
 from rejectbench.store import AppendStore, production_root
 
 # 세션 test 플래그 — 이름 고정. "값 존재"가 기준이므로 빈 문자열도 켠 것이다.
@@ -241,7 +241,7 @@ def assemble_event(
         }
         drift = _detect_drift(spec, guard_path)
 
-    scrubbed = scrub_text(reason)
+    scrubbed = scrub_text(redact_command_echo(reason))
     if len(scrubbed) > _MAX_REASON:
         scrubbed = scrubbed[:_MAX_REASON] + "…[truncated]"
     return GuardEvent(

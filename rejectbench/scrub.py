@@ -57,6 +57,18 @@ def _base64_replacement(match: re.Match[str]) -> str:
     return PLACEHOLDER if (has_lower and has_upper and has_digit) else run
 
 
+# 가드가 차단 메시지에 명령 전문을 되풀이하는 알려진 형태.
+# spec §4 "전체 명령 인자 저장 금지" — 명령 부분만 제거하고 매칭 패턴은 판정용으로 보존한다
+# (2026-08-29 사용자 결정).
+_COMMAND_ECHO = re.compile(r"^(BLOCKED: ')(.*?)(' matches )", re.DOTALL)
+_COMMAND_OMITTED = "<command omitted>"
+
+
+def redact_command_echo(reason: str) -> str:
+    """차단 사유의 알려진 명령-되풀이 형태에서 명령 부분을 제거한다. 멱등이다."""
+    return _COMMAND_ECHO.sub(rf"\g<1>{_COMMAND_OMITTED}\g<3>", reason, count=1)
+
+
 def scrub_text(text: str) -> str:
     """일반적 자격증명 형태를 플레이스홀더로 치환한다. 멱등이다."""
     out = _ENV_ASSIGN.sub(lambda m: f"{m.group(1)}={PLACEHOLDER}", text)
