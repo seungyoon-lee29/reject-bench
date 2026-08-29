@@ -44,6 +44,16 @@
 
 **실행 상태와 현재 frontier는 [`.dryforge/plan.md`](.dryforge/plan.md)와 [`HANDOFF.md`](HANDOFF.md)만 기록합니다.** 과거 01~05 문제정의와 수집기 v0 실측은 실패와 방향 변경의 근거로 보존하며, 05는 현재 정본이 아닙니다.
 
+## 사용 (v1 CLI)
+
+구현 주기(T1~T6)는 2026-08-29 완료됐고, 관찰 프로토콜([`docs/관찰-프로토콜.md`](docs/관찰-프로토콜.md))과 배선([`docs/배선-목록.md`](docs/배선-목록.md))으로 관측창이 열려 있습니다. 모든 명령은 `uv run python -m rejectbench.cli <서브커맨드>`이며 저장은 로컬 `data/v7`(비추적)입니다.
+
+- `register`/`list`/`show` — 가드 맥락 등록·조회 (내용이 바뀌면 버전 강제 상승)
+- `judge` — 세션 뒤 정책 판정. **기본은 dry-run** — 과금 호출은 `--approve-billing`을 명시해야만
+- `review list|record|demote` — 새 운영 사건 전수 검토와 test 강등
+- `guard show`/`decide`/`decisions` — 두 판단 축 조회와 `keep|modify|remove` 결정·이력
+- `report` — 원수 `N/D` 병기 보고서 생성
+
 ## 기존 수집기 v0
 
 `hooks/collect.py`는 기존 실측 원천을 계속 쌓는 이전 수집기입니다. 실제 가드 거부를 구조화해 잡지 못했다는 사실이 v7 재설계의 출발점이었습니다. 새 기록기가 실제 가드에 연결되고 배선 목록 대사를 마칠 때까지 일반 텔레메트리 연속성을 위해 유지하며, 이후 별도 결정으로 퇴역시킵니다.

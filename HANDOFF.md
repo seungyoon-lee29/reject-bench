@@ -1,41 +1,28 @@
-# 핸드오프 — 맷리뷰 finding 정리 커밋·최초 원격 푸시 완료, T1 착수 대기 (2026-08-28)
+# 핸드오프 — v7 구현 주기(T1~T6) 완료·관측창 오픈, 통합 결정 대기 (2026-08-29)
 
 ## 지금 하던 것
 
-반영 커밋 9cc3afd(기준점 9120547)를 mattpocock code-review 2축으로 검토하고, 권고 finding을 정본에 정리했다. 결과: 차단급 0. 정리 적용분은 8499472로 커밋했다 — ① A-F26 항진 절("참조 GuardSpec이 존재하며") 삭제: `spec.md`·`기획-입력.md`·06 지표 정의 3곳 ② 출고선 3요소 복원: `plan.md` T6 완료 조건에 '정직한 상태 보고' 추가, `CONTEXT.md` 출고선에 '(원수 병기)' 추가 ③ 최대 주장 문구 "내 저장소에서"→"내 저장소들에서"(Q1 복수 저장소 전제): spec·06·기획-입력·README·`.dryforge/handoff.md` 5곳. 잔여 판단 여지 항목(문서 중복 서술, CONTEXT 자기선언, 외부 저장소 용어)은 미적용 — 필요 시 별도 결정. GitHub 비공개 원격 `seungyoon-lee29/reject-bench`를 생성하고 `main`을 최초 푸시했다.
-
-그 전 단계: grill 인터뷰(8문)로 적대 리뷰 finding 수용을 결정하고 정본에 반영했다. 결정 원장·finding 매핑 전량은 `docs/문제정의/07-포트폴리오-인터뷰.md`.
-
-핵심 결정: ① 관측 대상 = 실존 가드 2종(전역 `block-dangerous-git.sh` + reply-gate `protect-live-reports.sh`), 저장은 reject-bench 중앙 ② 순서 = T1~T3 먼저 → 관찰 프로토콜 고정 → 관측창 오픈 → **그 뒤에** reply-gate 배포(1차 관측 무대) ③ 카드 C 출고선 = T6 기술 완료 + 관측창 가동 + 정직한 상태 보고(원수 병기) ④ origin 기본 `operation`(세션 test 플래그 부재 시) + 검토 단계 `test` 강등 amendment ⑤ 성공 판정 보완 세트 전부(양식 선등록·기준선 측정·종료 2축·용어 통일·판정기 교정) ⑥ 판정 enum → `correct_block | incorrect_block | insufficient_context` ⑦ MCP는 T7 선택 증분(O1 대기 구간) ⑧ 이름 유지 + bench=판사석 재정의. 기각 3건(B-F-25·B-F-10·B-F-22)은 사유와 함께 07에 기록.
-
-반영: 06·spec·plan·기획-입력 개정 / 07·`CONTEXT.md`·`docs/adr/0001-관측대상-실존-가드-앵커.md` 신설 / README·00-계획·소급 매니페스트·`.dryforge/handoff.md`·적대리뷰 배너 위생 / `포지션찾기/포트폴리오-전략.md` 갱신(타 저장소 — 커밋은 사용자 소관).
+dryforge go로 T1~T6을 브랜치 `dryforge/v7-build`에 구현 완료했다(main 미변경). 태스크별 red-green + 독립 스펙 검수(T1~T3) + 완료 게이트 `uv run pytest` 357건 exit 0 (`c06ed81`). 관측창은 열려 있다: 관찰 프로토콜 선등록(`docs/관찰-프로토콜.md` — 종료 조건 4주 또는 판정 가능 가드 1개 성립, Codex 범위 밖), 실존 가드 2종 v1 등록(`data/v7`), 배선 설치(`docs/배선-목록.md` — 전역·reply-gate settings.json이 래퍼 경유, 백업 생성됨). 문서층은 기존 관장 체계 유지 결정 — 추가는 `rejectbench/AGENTS.md` 신설과 CLAUDE/AGENTS/README 최소 추기뿐.
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**T1 착수**: 사용자가 dryforge `go`를 직접 호출해 3-doc(`.dryforge/handoff·spec·plan`) 실행을 시작한다 — frontier는 T1 도메인 계약(GuardSpec, red-green). `go`는 `disable-model-invocation`이라 모델이 대신 호출할 수 없다. 판정 가능 가드 정의는 항진 절 삭제 후 문안(`spec.md` §대표 지표)이 정본이다.
-
-### suggested skills
-
-- dryforge `go` (사용자 직접 호출): 3-doc 실행 — 웨이브 단위 구현 + 테스트 우선 검증 + 스펙 기준 리뷰
+**최종 리뷰 통과 후 통합 결정**: `dryforge/v7-build`를 main에 머지할지(PR/직접/보류) 사용자가 정한다. 통합 후에야 reply-gate 배포 잔여 작업(1차 관측 무대) 착수.
 
 ## 미결 결정
 
-1. **관찰 프로토콜의 구체 내용**(종료 조건 문안·평가 문항) — T3 실배선 전 게이트에서 작성·고정. 고정 시점 자체는 확정됨
-2. **새 어댑터의 Codex 지원 여부** — T3 설계에서 결정하고 관측 범위 선언에 명시
-3. **v0 `hooks/collect.py` 퇴역** — T3 배선 목록 대사(전역 settings.json 4이벤트 vs 새 배선) 후 별도 결정
-4. **판정 API 제공자·비용 승인** — T4 직전. 첫 과금 호출 전 명시 승인 게이트는 T4 태스크로 확정됨
-5. **외부 검증(X1)** — O2 뒤에만
+1. **검토 큐 2건 처리** — 구현 중 전역 가드가 에이전트 명령을 차단해 `operation` 사건 2건이 기록됨(`ev-e767…`, `ev-94f0…`). `review list`로 보고 test 강등이든 유용성 판정이든 사용자가 결정
+2. **v0 `hooks/collect.py` 퇴역** — 배선 병행 상태 확인 후 별도 커밋(`docs/배선-목록.md` cutover 절)
+3. **판정 첫 과금 호출** — 사건이 쌓인 뒤 `judge --approve-billing` 시점에 승인(기본 dry-run). 모델 기본 gpt-5-mini, temperature 거부 시 settings 조정
+4. **외부 검증(X1)** — O2 뒤에만
 
 ## 함정
 
-- **reply-gate 배포 작업을 T3 완료 전에 시작하지 않는다.** 기록기 없는 발동은 다시 유실된다 — 이 순서가 `docs/adr/0001`의 핵심이다
-- `docs/v7-기획-적대리뷰.md`는 이제 역사 기록이다(상단 배너). 본문 줄 번호는 개정 전 문서 기준이므로 현행 문서와 대조하지 말 것
-- 판정 enum·지표 정의·origin 규칙은 이번에 확정된 spec이 정본이다. 06·spec·plan·기획-입력이 어긋나 보이면 관장 표(`.dryforge/handoff.md`)의 서열: 문제=06, 불변 입력=기획-입력, 행동=spec, 순서=plan
-- 시험·강제 발동은 반드시 세션 test 플래그 아래에서 — 플래그 없는 발동은 `operation`으로 기록된다
-- `포지션찾기` 저장소의 전략 문서 변경은 커밋하지 않았다 — 사용자 소관
-- 시험·강제 발동·소급 2건은 기술 검증에만 쓴다. 자연 운영 가치의 분자·분모에 넣지 않는다
-- `unknown` 승격 금지·amendment 원칙 유지. 정정은 원본을 덮지 않는다
-- T1 테스트는 임시 디렉터리만 사용하고 실제 운영 저장소에 쓰지 않는다
-- 연속성 훅과 `hooks/collect.py`는 폐기 대상이 아니다
-- `docs/문제정의/01~05`·`.claude/skills/문제심사-*`는 폴더 정리로 지우지 않는다 — 01~05 보존은 정본 3중 결정(기획-입력:109 불변, spec §8, 00-계획:62), 심사 스킬 보존은 적대리뷰:134 "검토 후 보존"(07 Q6 비준)이며, 2026-08-28 정리 검토에서 사용자가 삭제 취소로 재확인했다. 포트폴리오 과정 증거물이다
-- `.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업이다. 건드리지 않는다
+- 시험·강제 발동은 반드시 `REJECTBENCH_TEST_SESSION` 아래에서 — 플래그 없는 발동은 `operation`으로 기록된다 (배선이 살아 있다!)
+- 전역 가드는 명령 문자열 전문 매칭 — 위험 패턴 텍스트를 heredoc으로 쓰면 자기 차단된다. 파일 도구로 쓸 것 (`rejectbench/AGENTS.md` 함정 절)
+- 배선 명령은 `uv run --project …` 필수 — 맨 `python3 -m`은 패키지를 못 찾는다
+- reply-gate `.claude/settings.json` 변경분은 그 저장소에서 비커밋 — 커밋은 사용자 소관 (백업 `settings.json.bak-1787966866`)
+- 산입·post-remove·신규 가드 표기는 파생 계산이 정본 — 저장값 신뢰 금지 (`rejectbench/AGENTS.md`)
+- 판정 교정 레코드는 사이드카 `calibration.jsonl`, 기준선은 `baseline.json` 관례
+- 관찰 프로토콜 변경은 사유 있는 추기로만. 실행 상태는 plan+HANDOFF만 기록
+- `.claude/settings.json.bak-*`, `.codex/config.toml.bak-*`는 사용자 소유 비추적 백업 — 건드리지 않는다
+- `docs/문제정의/01~05`·심사 스킬은 보존 결정(3중 정본 + 2026-08-28 재확인) — 폴더 정리로 지우지 않는다
