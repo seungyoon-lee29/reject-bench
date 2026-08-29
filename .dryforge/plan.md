@@ -9,7 +9,7 @@
 - `[x]` 완료 및 검증됨
 - `[?]` 외부 상태나 자연 사건을 기다림
 
-현재 frontier는 **T1 v7 도메인 계약**이다. D0 승인, D1 기존 구현 정리, D2 리뷰·인터뷰 반영은 완료됐다.
+현재 frontier는 **T4 세션 뒤 LLM 정책 판정**이다. D0~D2와 T1~T3이 완료됐고, 2026-08-29 관찰 프로토콜 고정·배선 설치로 관측창이 열렸다(`docs/관찰-프로토콜.md`, `docs/배선-목록.md`).
 
 ## 실행 그래프
 
@@ -73,11 +73,11 @@ tasks:
 
 의존: D2.
 
-- [ ] GuardSpec, GuardEvent, PolicyVerdict, UtilityReview, GuardDecision, LossRecord, Amendment 스키마를 새로 정의 (enum: `correct_block | incorrect_block | insufficient_context`, `unregistered` 경로, `drift`·`post-remove` 표시 포함)
-- [ ] enum·필수 필드·참조 무결성·정규화 해시 규칙 구현 (해시 도메인 = 의미 5필드)
-- [ ] origin 결정표 구현: 세션 test 플래그 → `test`, 플래그 부재 → `operation` + `default_inherited`, 실행 맥락 없음 → `unknown`, `test` 강등 amendment
-- [ ] 단순 append 저장소와 테스트용 임시 저장소 경계 구현 (저장 위치 = reject-bench 중앙)
-- [ ] 스키마/참조/불변식 테스트 (분자⊆분모, 보류값·미처리 구분 포함)
+- [x] GuardSpec, GuardEvent, PolicyVerdict, UtilityReview, GuardDecision, LossRecord, Amendment 스키마를 새로 정의 (enum: `correct_block | incorrect_block | insufficient_context`, `unregistered` 경로, `drift`·`post-remove` 표시 포함)
+- [x] enum·필수 필드·참조 무결성·정규화 해시 규칙 구현 (해시 도메인 = 의미 5필드)
+- [x] origin 결정표 구현: 세션 test 플래그 → `test`, 플래그 부재 → `operation` + `default_inherited`, 실행 맥락 없음 → `unknown`, `test` 강등 amendment
+- [x] 단순 append 저장소와 테스트용 임시 저장소 경계 구현 (저장 위치 = reject-bench 중앙)
+- [x] 스키마/참조/불변식 테스트 (분자⊆분모, 보류값·미처리 구분 포함)
 
 완료 조건: spec 3절의 모든 엔티티와 참조가 테스트로 고정되고 실제 운영 경로에는 쓰지 않는다.
 
@@ -85,13 +85,13 @@ tasks:
 
 의존: T1.
 
-- [ ] GuardSpec 생성·검증 CLI
-- [ ] 의미 변경 시 새 버전을 강제하고 덮어쓰기 차단 (내용 비교 = content_hash 비교)
-- [ ] 정규화 content hash 생성 (의미 5필드 한정)
-- [ ] 예시·예외 최소 품질 검증: `policy` 비어 있지 않음, `allow_examples`·`block_examples` 각 1건 이상
-- [ ] `enforcement_ref`(가드 스크립트 경로·파일 해시) 기록
-- [ ] 존재하지 않거나 사건보다 늦은 spec 참조 차단 (append 순서 근거 병용)
-- [ ] **관측 대상 가드 2종의 GuardSpec 실제 등록**: 전역 `block-dangerous-git.sh`, reply-gate `protect-live-reports.sh`
+- [x] GuardSpec 생성·검증 CLI
+- [x] 의미 변경 시 새 버전을 강제하고 덮어쓰기 차단 (내용 비교 = content_hash 비교)
+- [x] 정규화 content hash 생성 (의미 5필드 한정)
+- [x] 예시·예외 최소 품질 검증: `policy` 비어 있지 않음, `allow_examples`·`block_examples` 각 1건 이상
+- [x] `enforcement_ref`(가드 스크립트 경로·파일 해시) 기록
+- [x] 존재하지 않거나 사건보다 늦은 spec 참조 차단 (append 순서 근거 병용)
+- [x] **관측 대상 가드 2종의 GuardSpec 실제 등록**: 전역 `block-dangerous-git.sh`, reply-gate `protect-live-reports.sh`
 
 완료 조건: 두 버전의 시험 가드에서 과거 사건이 항상 과거 해시를 참조함을 검증하고, 실존 가드 2종이 등록돼 있다.
 
@@ -99,17 +99,17 @@ tasks:
 
 의존: T2.
 
-- [ ] 비블로킹 원자 append 기록기
-- [ ] origin 결정표(`operation | test | unknown`)와 `origin_evidence` 기록
-- [ ] 세션 test 플래그가 전 구간에서 보존되도록 구현
-- [ ] 구조화 행동 요약(도구 이름·명령 동사·대상 경로·heredoc 여부)과 가드가 낸 차단 사유 추출, 적재 시점 비밀 제거 — 가드 2종별 판정 최소 필드는 spec 3.2·3.3 계약을 따른다
-- [ ] `unregistered` 경로: 미등록 가드 발동을 버리지 않고 기록, 지표 제외
-- [ ] drift 감지: 기록 시 가드 스크립트 해시를 `enforcement_ref`와 대조
-- [ ] 기록 실패·부분 기록 LossRecord + 대체 매체 최소 흔적
-- [ ] 동시 append, 부분 쓰기, 정상 양성 대조, 운영 저장소 비접촉 테스트
-- [ ] **관찰 프로토콜 문서 작성·고정 — 실배선 전 게이트**: 종료 조건, 평가 질문, 응답 양식(확신 문항·복원 시간), 기준선 측정 절차, 관측 범위(런타임·저장소) 선언. 이후 변경은 사유 있는 append 수정으로만
-- [ ] **새 배선을 관측 대상 가드 2종 모두에 설치** (하나가 아니라 전부 — 커버리지 공백 방지). Codex 경로 지원 여부를 설계에서 결정하고 관측 범위 선언에 명시
-- [ ] 배선 위치 목록 문서화와 cutover 대사: v0 collect.py 배선(전역 settings.json 4이벤트)과 새 배선 목록을 대조해 관측 공백이 없음을 확인하고, v0 `hooks/collect.py` 퇴역은 별도 결정
+- [x] 비블로킹 원자 append 기록기
+- [x] origin 결정표(`operation | test | unknown`)와 `origin_evidence` 기록
+- [x] 세션 test 플래그가 전 구간에서 보존되도록 구현
+- [x] 구조화 행동 요약(도구 이름·명령 동사·대상 경로·heredoc 여부)과 가드가 낸 차단 사유 추출, 적재 시점 비밀 제거 — 가드 2종별 판정 최소 필드는 spec 3.2·3.3 계약을 따른다
+- [x] `unregistered` 경로: 미등록 가드 발동을 버리지 않고 기록, 지표 제외
+- [x] drift 감지: 기록 시 가드 스크립트 해시를 `enforcement_ref`와 대조
+- [x] 기록 실패·부분 기록 LossRecord + 대체 매체 최소 흔적
+- [x] 동시 append, 부분 쓰기, 정상 양성 대조, 운영 저장소 비접촉 테스트
+- [x] **관찰 프로토콜 문서 작성·고정 — 실배선 전 게이트**: 종료 조건, 평가 질문, 응답 양식(확신 문항·복원 시간), 기준선 측정 절차, 관측 범위(런타임·저장소) 선언. 이후 변경은 사유 있는 append 수정으로만
+- [x] **새 배선을 관측 대상 가드 2종 모두에 설치** (하나가 아니라 전부 — 커버리지 공백 방지). Codex 경로 지원 여부를 설계에서 결정하고 관측 범위 선언에 명시
+- [x] 배선 위치 목록 문서화와 cutover 대사: v0 collect.py 배선(전역 settings.json 4이벤트)과 새 배선 목록을 대조해 관측 공백이 없음을 확인하고, v0 `hooks/collect.py` 퇴역은 별도 결정
 
 완료 조건: 기록기 실패가 가드의 원래 결과를 바꾸지 않고, 시험 사건이 운영 사건으로 저장되지 않으며, 관찰 프로토콜이 첫 운영 사건보다 먼저 고정돼 있다. **T3 완료 = 관측창 오픈 = reply-gate 배포 작업 착수 가능.**
 
