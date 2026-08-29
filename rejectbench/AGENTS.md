@@ -1,6 +1,6 @@
 # rejectbench 패키지 — 모듈 규칙
 
-v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/spec.md`다.
+v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/`의 주기 문서이며, 끝난 주기는 번호 폴더에 있다(현재 최신 `002/`).
 
 ## 모듈 맵
 
@@ -43,10 +43,10 @@ v7 도메인 구현 전체가 이 패키지다. 행동의 정본은 `.dryforge/s
 - 같은 (spec·rubric·model·settings) 조합의 교정 실패 기록은 재사용된다 — 동일 설정 강제 재교정 경로는 없고, 설정을 바꾸면 자연히 재교정된다. 일시적 API 오류로 미통과가 박제될 수 있으니 그 경우 settings를 바꿔 재교정한다.
 - test 플래그가 켜져 있어도 실행 맥락(세션 식별)이 없으면 `unknown`이 우선이다 — spec §3.2 규칙 1의 자구("플래그 켜짐 → 항상 test")와 다른 보수적 선택이며, 필요하면 사유 있는 amendment로 `test` 강등해 정정한다.
 - **MCP SDK는 사용자가 표준 라이브러리 직접 구현 권고를 듣고도 기각하고 택한 결정이다**(프로토콜 개정 추종 부담 회피). "의존성을 줄이는 개선"으로 stdlib 재구현으로 되돌리지 말 것. 범위는 조회 표면뿐이고, 그 밖의 모듈에 SDK를 끌어들이는 것도 같은 이유로 금지다.
-- 설치된 SDK는 mcp 2.x다 — v1의 `FastMCP`는 `mcp.server.mcpserver.MCPServer`로 이름이 바뀌었고 `mcp.server.fastmcp`는 안내 메시지를 내며 import에 실패한다. `ToolError`를 던지면 SDK가 `Error executing tool <이름>: ` 접두를 붙여 내보내므로, 사유 문자열 자체는 이미 정화된 한 줄이어야 한다. 반대로 예상 못 한 예외가 새면 SDK가 사유를 지우고 `Error executing tool <이름>`만 남긴다 — 호출자는 아무 단서도 못 받고 원인은 stderr로만 간다. 예외를 흘리지 말고 정화된 `ToolError`로 바꿔서 던질 것.
+- 설치된 SDK는 mcp 2.x다 — v1의 `FastMCP`는 `mcp.server.mcpserver.MCPServer`로 이름이 바뀌었고 `mcp.server.fastmcp`는 안내 메시지를 내며 import에 실패한다. `ToolError`를 던지면 SDK가 `Error executing tool <이름>: ` 접두를 붙여 내보내므로, 사유 문자열 자체는 이미 정화된 한 줄이어야 한다. 반대로 예상 못 한 예외가 새면 SDK가 사유를 지우고 `Error executing tool <이름>`만 남겨, 호출자는 아무 단서도 못 받는다.
 - 위 배선 명령이 절대 경로여야 하는 실제 원인은 `uv run --project`가 uv의 환경 탐색 경로만 정할 뿐 **작업 디렉터리를 바꾸지 않는다**는 데 있다 — 실행 디렉터리가 저장소 밖이면 `--project`를 줘도 모듈을 못 찾는다. `.mcp.json` 등록은 `env.PYTHONPATH`로 이 의존을 없앴으니, 새 실행 지점을 만들 때도 실행 디렉터리를 가정하지 말 것. 이 등록은 가드 발동을 잡는 훅 호출 지점 목록과는 별개다.
 - SDK 하나를 더하면서 lock에 패키지 30개(이 플랫폼 설치 기준 28개)가 들어왔고 그중에는 HTTP 서버 스택(starlette·uvicorn·sse-starlette)과 암호 라이브러리가 섞여 있다. 이 표면은 **stdio만** 쓴다 — 원격 전송은 계약상 범위 밖이고, 그 스택이 깔려 있다는 사실이 HTTP 노출을 허용하지 않는다. 반대로 "안 쓰는 의존성"으로 보고 걷어내려 하지도 말 것: 전부 SDK의 무조건 의존이라 개별 제거가 불가능하다.
-- 예상 못 한 예외가 나면 SDK가 서버 **stderr**에 전체 트레이스백을 찍는다. 응답 본문은 한 줄로 막히지만 stderr는 정화 경계 밖이고 MCP 호스트가 로그로 걷어간다 — 새로 `raise`를 넣을 때 메시지에 원본 경로나 세션 식별자를 담지 말 것.
+- 그래서 예외를 흘리지 말고 정화된 `ToolError`로 바꿔 던진다. 새는 예외는 서버 **stderr**에 전체 트레이스백까지 찍는데, stderr는 정화 경계 밖이고 MCP 호스트가 로그로 걷어간다 — 새로 `raise`를 넣을 때 메시지에 원본 경로나 세션 식별자를 담지 말 것. 형식이 맞아도 변환이 터질 수 있다(자릿수 한도를 넘는 `int()` 등) — 검증과 변환을 함께 감쌀 것.
 - `decide modify`에서 `--enforcement-script`를 생략하면 새 버전에 enforcement_ref가 없어 이후 발동이 구버전에 연결되고 반영 확인이 `unverifiable`로 뜬다 — modify 시 스크립트 경로를 항상 넘길 것.
 
 ## 테스트 규칙
