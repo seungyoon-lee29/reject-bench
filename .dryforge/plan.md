@@ -9,7 +9,7 @@
 - `[x]` 완료 및 검증됨
 - `[?]` 외부 상태나 자연 사건을 기다림
 
-현재 frontier는 **T4 세션 뒤 LLM 정책 판정**이다. D0~D2와 T1~T3이 완료됐고, 2026-08-29 관찰 프로토콜 고정·배선 설치로 관측창이 열렸다(`docs/관찰-프로토콜.md`, `docs/배선-목록.md`).
+구현 주기(T1~T6)는 2026-08-29 완료됐다. 관측창은 열려 있다(`docs/관찰-프로토콜.md`, `docs/배선-목록.md`). 현재 frontier는 **O1 자연 운영 관찰**(캘린더 대기)이며, T7은 대기 구간의 선택 증분이다.
 
 ## 실행 그래프
 
@@ -117,13 +117,13 @@ tasks:
 
 의존: T3.
 
-- [ ] 판정 루브릭과 context bundle 직렬화 고정
-- [ ] GuardEvent + 정확한 GuardSpec만 입력하는 판정 실행기
-- [ ] 판정기 교정: allow/block 예시처럼 기대 판정이 알려진 입력으로 교정 검사, 교정 레코드 저장, 미교정 판정 병기
-- [ ] 모델·설정·rubric·bundle 해시 기록
-- [ ] 새 운영 사건 전수 선택, API 실패 미처리 유지, 임의 재샘플링 방지
-- [ ] 프롬프트 주입 방어와 `insufficient_context` 테스트
-- [ ] API 키는 환경변수로만 읽고, 첫 과금 호출 전 사용자의 명시 승인을 확인하는 게이트 구현
+- [x] 판정 루브릭과 context bundle 직렬화 고정
+- [x] GuardEvent + 정확한 GuardSpec만 입력하는 판정 실행기
+- [x] 판정기 교정: allow/block 예시처럼 기대 판정이 알려진 입력으로 교정 검사, 교정 레코드 저장, 미교정 판정 병기
+- [x] 모델·설정·rubric·bundle 해시 기록
+- [x] 새 운영 사건 전수 선택, API 실패 미처리 유지, 임의 재샘플링 방지
+- [x] 프롬프트 주입 방어와 `insufficient_context` 테스트
+- [x] API 키는 환경변수로만 읽고, 첫 과금 호출 전 사용자의 명시 승인을 확인하는 게이트 구현
 
 완료 조건: 고정 fixture에서 세 판정값과 미처리 경로가 재현되고, 사용자 검토나 집계 정보가 입력 bundle에 포함되지 않는다.
 
@@ -131,14 +131,14 @@ tasks:
 
 의존: T4.
 
-- [ ] 새 운영 사건 전수 검토 큐
-- [ ] `useful | unnecessary | uncertain` append 기록
-- [ ] 검토 중 시험·강제 발동 확인 시 `test` 강등 amendment 경로
-- [ ] 가드별 세션·사건·두 판단 축을 함께 보는 최소 CLI/정적 뷰
-- [ ] `keep | modify | remove` 결정과 evidence id 연결 (분자⊆분모 강제)
-- [ ] modify 시 새 GuardSpec 버전 강제와 `enforcement_ref` 반영 확인
-- [ ] remove 후 발동의 `post-remove` 표시
-- [ ] 결정 변경 이력 보존
+- [x] 새 운영 사건 전수 검토 큐
+- [x] `useful | unnecessary | uncertain` append 기록
+- [x] 검토 중 시험·강제 발동 확인 시 `test` 강등 amendment 경로
+- [x] 가드별 세션·사건·두 판단 축을 함께 보는 최소 CLI/정적 뷰
+- [x] `keep | modify | remove` 결정과 evidence id 연결 (분자⊆분모 강제)
+- [x] modify 시 새 GuardSpec 버전 강제와 `enforcement_ref` 반영 확인
+- [x] remove 후 발동의 `post-remove` 표시
+- [x] 결정 변경 이력 보존
 
 완료 조건: 시험 데이터로 네 가지 정책/유용성 조합을 모두 표현하고, 둘 이상의 운영 세션 조건을 우회할 수 없다.
 
@@ -146,13 +146,13 @@ tasks:
 
 의존: T5.
 
-- [ ] 대표 지표와 세 진단 지표를 원수 `N/D`로 계산 (판정 가능 가드 단일 정의, 분자⊆분모)
-- [ ] 분모 0, 보류값·미처리 분리, 소표본, test/unknown/unregistered 제외 처리
-- [ ] 손실·부분 기록·수정·강등 이력과 drift·post-remove 병기
-- [ ] 단측 증거 한계와 1인 자기측정 한계 문구 포함
-- [ ] 명시적 시험 가드로 전체 E2E 실행
-- [ ] 산출물에 `기술 검증용 test evidence` 표시
-- [ ] 운영 가치 미검증 상태를 그대로 보고
+- [x] 대표 지표와 세 진단 지표를 원수 `N/D`로 계산 (판정 가능 가드 단일 정의, 분자⊆분모)
+- [x] 분모 0, 보류값·미처리 분리, 소표본, test/unknown/unregistered 제외 처리
+- [x] 손실·부분 기록·수정·강등 이력과 drift·post-remove 병기
+- [x] 단측 증거 한계와 1인 자기측정 한계 문구 포함
+- [x] 명시적 시험 가드로 전체 E2E 실행
+- [x] 산출물에 `기술 검증용 test evidence` 표시
+- [x] 운영 가치 미검증 상태를 그대로 보고
 
 완료 조건: 자동 테스트·CLI 스모크·실제 파일 산출 검증이 통과하고, 시험 사건이 운영 지표에 0건 포함된다. **T6 완료 + 관측창 가동 + 정직한 상태 보고(원수 병기) = 카드 C 최소 출고선.**
 
@@ -210,12 +210,12 @@ tasks:
 1. `docs: redesign reject bench around guard lifecycle decisions` — 완료
 2. `chore: retire pre-v7 implementation` — 완료
 3. `docs: 적대 리뷰·포트폴리오 인터뷰 반영` — D2
-4. `feat: define v7 domain records`
-5. `feat: version guard context`
-6. `feat: capture guard events with provenance`
-7. `feat: judge policy consistency after sessions`
-8. `feat: review utility and record guard decisions`
-9. `feat: report v7 evidence and technical e2e`
+4. [완료] `feat: define v7 domain records`
+5. [완료] `feat: version guard context`
+6. [완료] `feat: capture guard events with provenance`
+7. [완료] `feat: judge policy consistency after sessions`
+8. [완료] `feat: review utility and record guard decisions`
+9. [완료] `feat: report v7 evidence and technical e2e`
 10. (선택) `feat: read-only evidence mcp server`
 
 관찰 결과는 구현 커밋과 분리한다. 커밋과 push는 별개이며, 외부 push는 사용자가 요청할 때만 한다.
