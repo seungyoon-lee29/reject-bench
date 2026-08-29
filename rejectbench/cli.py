@@ -1,5 +1,5 @@
 """GuardSpec 작성·등록·조회 CLI (T2) + 세션 뒤 정책 판정 (T4) +
-사용자 검토·가드 결정 (T5). 표준 라이브러리만 사용한다.
+사용자 검토·가드 결정 (T5) + 보고서 (T6). 표준 라이브러리만 사용한다.
 
     python -m rejectbench.cli validate --file draft.json
     python -m rejectbench.cli register --store DIR --file draft.json \
@@ -18,6 +18,11 @@
         --decision keep|modify|remove --evidence EVENT_ID [--evidence ...] \
         --rationale TEXT [--modify-file draft.json] [--enforcement-script PATH]
     python -m rejectbench.cli decisions --store DIR --guard GUARD_ID
+    python -m rejectbench.cli report --store DIR [--out [경로]]
+
+report는 지표·병기 상태를 담은 Markdown 보고서를 stdout으로 낸다. `--out`만
+주면 store 루트 하위 `reports/report-<UTC시각>.md` 기본 경로에, `--out 경로`는
+그 경로에 파일로 쓴다. 보고서에는 홈 경로·세션 식별자를 넣지 않는다.
 
 draft JSON은 의미 필드만 담는다 — version·시각·해시는 등록부가 정한다:
 `guard_id`, `project`, `purpose`, `policy`, `exceptions`(선택, 기본 []),
@@ -63,6 +68,7 @@ from rejectbench.registry import (
     check_quality,
     enforcement_ref_for,
 )
+from rejectbench.report import default_report_path, generate_report
 from rejectbench.review import ReviewError, demote_to_test, record_review, review_queue
 from rejectbench.store import AppendStore, production_root
 
@@ -394,6 +400,28 @@ def _cmd_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+_DEFAULT_OUT = ""  # `--out`만 준 경우의 sentinel — store 기본 경로를 쓴다
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    store = AppendStore(args.store)
+    markdown = generate_report(store)
+    if args.out is None:
+        print(markdown, end="")
+        return 0
+    out_path = (
+        default_report_path(store) if args.out == _DEFAULT_OUT else Path(args.out)
+    )
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        print(f"오류: 보고서 파일을 쓸 수 없다 — {exc}", file=sys.stderr)
+        return 1
+    _print_json({"written": str(out_path), "bytes": len(markdown.encode("utf-8"))})
+    return 0
+
+
 def _cmd_decisions(args: argparse.Namespace) -> int:
     _, dataset = _load_store_dataset(args.store)
     if not any(gid == args.guard for gid, _ in dataset.specs_by_key):
@@ -556,6 +584,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_store_option(decisions)
     decisions.add_argument("--guard", required=True, help="guard_id")
     decisions.set_defaults(func=_cmd_decisions)
+
+    report = sub.add_parser(
+        "report",
+        help="지표·병기 상태 Markdown 보고서 — stdout 또는 --out 파일",
+    )
+    _add_store_option(report)
+    report.add_argument(
+        "--out",
+        nargs="?",
+        const=_DEFAULT_OUT,
+        default=None,
+        metavar="경로",
+        help=(
+            "보고서를 파일로 쓴다. 경로 없이 주면 store 루트 하위 "
+            "reports/report-<UTC시각>.md 기본 경로를 쓴다"
+        ),
+    )
+    report.set_defaults(func=_cmd_report)
 
     return parser
 
