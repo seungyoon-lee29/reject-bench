@@ -3,7 +3,9 @@ name = "reject-bench"
 version = "0.0.0"
 description = "지속형 가드의 발동 증거를 바탕으로 유지·수정·제거 결정을 돕는 개인 도구 실험"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "mcp>=2.1.1",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
