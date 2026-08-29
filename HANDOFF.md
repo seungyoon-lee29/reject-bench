@@ -37,6 +37,6 @@
 - 설치된 SDK는 mcp 2.x — v1의 `FastMCP`는 `MCPServer`로 이름이 바뀌었고, 도구 오류 텍스트에 SDK가 `Error executing tool <이름>: ` 접두를 붙인다
 - 구현층 규칙·함정 정본은 `rejectbench/AGENTS.md`(산입·post-remove 파생 정본, 교정 사이드카 `calibration.jsonl`, 조회 표면의 단일 출력 경계, modify 시 `--enforcement-script` 필수 등)
 - `get_report` 동일성 테스트는 §4.3(보고서 원문 그대로)과 §5(정화)가 부딪히는 순간 일부러 red가 된다 — 보고서에 세션 식별자가 실리면 그때 둘 중 하나를 골라야 한다
-- 첫 자연 사건은 도구 보고서 열람 전 transcript+git 기준선 측정(`docs/관찰-프로토콜.md`)
+- 첫 자연 사건은 도구 보고서 열람 전 transcript+git 기준선 측정(`docs/관찰-프로토콜.md`). **전역 등록을 피한 것으로 이 위험이 다 사라지지는 않는다** — 전역 가드의 관측 범위는 모든 저장소 세션이고 지금까지의 운영 사건 2건은 둘 다 이 저장소에서 났다. 이 저장소 세션이 기준선 복원 전에 증거 조회 도구를 부르면 같은 규율과 부딪힌다. 기준선 측정 전에는 조회 도구를 호출하지 않는다
 - `.claude/settings.json.bak-*`, `.codex/config.toml.bak-*`는 사용자 소유 비추적 백업 — 건드리지 않는다
 - `docs/문제정의/01~05`·심사 스킬은 보존 결정 — 폴더 정리로 지우지 않는다
