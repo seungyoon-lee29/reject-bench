@@ -991,6 +991,60 @@ def test_wellformed_but_absent_version_is_still_the_no_such_version_error(tmp_pa
         assert "없는 버전" in result_text(result), value
 
 
+def test_overlong_digit_version_stays_inside_the_tool_error(tmp_path):
+    """자릿수 한도를 넘는 십진수 문자열도 도구 밖으로 새면 안 된다.
+
+    `int()`는 4300자리(CPython 기본)를 넘으면 `ValueError`를 던진다. 정규식만
+    보고 통과시킨 뒤 변환을 감싸지 않으면 예외가 도구 밖으로 나가고, 클라이언트는
+    정화 경계를 지나지 않은 SDK 문구를 받는다.
+    """
+    store = planted_store(tmp_path / "store")
+    server = build_server(store, now=NOW)
+    for digits in (4300, 4301, 5000):
+        result = call_tool(
+            server, GUARD_EVIDENCE_TOOL, {"guard_id": "planted-guard", "version": "9" * digits}
+        )
+        text = result_text(result)
+        assert result.is_error is True, digits
+        assert "\n" not in text, digits
+        assert len(text) <= mcp_server.MAX_ECHO + 120, (digits, len(text))
+        assert str(Path.home()) not in text, digits
+        assert "Traceback" not in text, digits
+        # 4300자리까지는 변환되어 '없는 버전', 그 위는 변환 한도에 걸려 '정수여야 한다'.
+        assert ("없는 버전" in text) or ("정수여야 한다" in text), digits
+
+
+def test_absent_version_error_is_bounded_like_every_other_echo(tmp_path):
+    """'없는 버전' 사유도 호출자 입력을 담는다 — 상한 없이 부풀면 안 된다."""
+    store = planted_store(tmp_path / "store")
+    result = call_tool(
+        build_server(store, now=NOW),
+        GUARD_EVIDENCE_TOOL,
+        {"guard_id": "planted-guard", "version": "9" * 500},
+    )
+    text = result_text(result)
+    assert result.is_error is True
+    assert "없는 버전" in text
+    assert "\n" not in text
+    assert len(text) <= mcp_server.MAX_ECHO + 120, len(text)
+
+
+#: 기본 `strip()`이 걷어내는 유니코드 공백 — `[0-9]`로 좁힌 뜻과 어긋나므로 거부한다.
+UNICODE_SPACE_VERSIONS = ["\xa02\xa0", "　2　", " 2 ", "\x1c2\x1c"]
+
+
+@pytest.mark.parametrize("value", UNICODE_SPACE_VERSIONS)
+def test_version_strips_ascii_whitespace_only(tmp_path, value):
+    store = planted_store(tmp_path / "store")
+    result = call_tool(
+        build_server(store, now=NOW),
+        GUARD_EVIDENCE_TOOL,
+        {"guard_id": "planted-guard", "version": value},
+    )
+    assert result.is_error is True, repr(value)
+    assert "정수여야 한다" in result_text(result), repr(value)
+
+
 def test_underscore_separated_version_is_not_silently_reinterpreted(tmp_path):
     """`int("1_0")`은 10이다 — 파이썬의 관대함이 호출자 입력을 조용히 다시 읽으면 안 된다."""
     root = tmp_path / "store"

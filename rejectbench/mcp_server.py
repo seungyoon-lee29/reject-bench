@@ -22,9 +22,11 @@ MCP SDK import는 이 모듈 안에만 있다.
 호출마다 store를 다시 읽는다 — 캐시도, 상주 상태도 없다. 꼬리 부분 줄은 기존 적재
 규약대로 건너뛰고 손상 줄 수로 드러낸다.
 
-`list_guards`·`guard_evidence`는 한 호출에 `load()` 스냅샷 **하나**만 쓴다 —
+`list_guards`·`guard_evidence`는 한 호출에 `records.jsonl` 스냅샷 **하나**만 쓴다 —
 `GuardRegistry`가 생성자에서 자체 `load()`를 하므로 등록부 조회도 이미 적재한
-`Dataset.specs_by_key`로 한다.
+`Dataset.specs_by_key`로 한다. 사이드카 `calibration.jsonl`은 예외로 필요할 때
+지연 적재된다(경계 구성 뒤일 수 있다). 교정 레코드에는 세션 식별자가 없어 별칭
+대상이 아니고, 거기서 나온 문자열도 다른 값과 똑같이 경계를 지난다.
 
 `get_report`만 한 호출에 두 번 적재한다. 보고서 본문의 정본은 v1 코어의
 `generate_report`이고 그 함수가 자체 `load()`를 하기 때문이다(그 시그니처를 바꾸는
@@ -159,6 +161,7 @@ MAX_ECHO = 120
 #: `int()`에 그대로 맡기면 파이썬의 관대함(자릿수 구분 `_`, 전각·아랍숫자, `+` 부호)이
 #: 새어 `"1_0"`이 조용히 10이 된다. `\d`는 유니코드 숫자를 포함하므로 `[0-9]`로 못 박는다.
 _PLAIN_INT = re.compile(r"-?[0-9]+")
+_ASCII_SPACE = " \t\n\r\f\v"
 
 #: 판정 가능 가드 기준 — decision/metrics의 단일 정의를 문구로 함께 실어 보낸다.
 DECIDABLE_CRITERION = (
@@ -514,11 +517,18 @@ def _checked_version(snapshot: _Snapshot, value: Any) -> int | None:
         raise snapshot.fail("version은 정수여야 한다:", echo=value)
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and _PLAIN_INT.fullmatch(value.strip()):
+    if isinstance(value, str) and _PLAIN_INT.fullmatch(value.strip(_ASCII_SPACE)):
         # 일부 클라이언트는 숫자도 문자열로 보낸다 — 평범한 십진수면 받아들인다.
         # `int()`에 곧장 맡기지 않는 이유: `"1_0"`이 조용히 10이 되는 등 파이썬의
-        # 관대함이 호출자 입력을 다시 해석해 버린다.
-        return int(value.strip())
+        # 관대함이 호출자 입력을 다시 해석해 버린다. 공백도 ASCII만 걷어낸다 —
+        # 기본 `strip()`은 유니코드 공백까지 먹어서 `[0-9]`로 좁힌 뜻이 어긋난다.
+        try:
+            return int(value.strip(_ASCII_SPACE))
+        except ValueError:
+            # 십진수 문자열이어도 자릿수가 CPython 한도(기본 4300)를 넘으면
+            # 변환이 터진다. 여기서 잡지 않으면 예외가 도구 밖으로 새고, 그
+            # 응답은 정화 경계를 지나지 않은 SDK 문구가 된다.
+            pass
     raise snapshot.fail("version은 정수여야 한다:", echo=value)
 
 
@@ -551,8 +561,11 @@ def render_guard_evidence(store: AppendStore, guard_id: Any, version: Any = None
         spec = snapshot.dataset.specs_by_key.get((guard_id, version))
         if spec is None:
             versions = ", ".join(f"v{v}" for v in view.versions)
+            # 호출자가 준 값은 `echo`로 넘긴다 — 사유 문자열에 그대로 박으면
+            # 길이 상한이 걸리지 않아 자릿수 큰 입력이 오류를 통째로 부풀린다.
             raise snapshot.fail(
-                f"가드 {guard_id}에 없는 버전: v{version} (등록 버전: {versions})"
+                f"가드에 없는 버전 (등록 버전: {versions}) — 요청한 가드·버전:",
+                echo=f"{guard_id} v{version}",
             )
     if spec.version == view.latest_version:
         # 뷰가 이미 최신 spec을 대조했다 — 같은 응답 안에서 파일을 다시 읽지 않는다.
