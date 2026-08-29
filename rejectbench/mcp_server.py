@@ -49,14 +49,22 @@ MCP SDK import는 이 모듈 안에만 있다.
 비밀 제거는 v1 적재 시점 규칙이 이미 담당한다 — 이 경계는 그 위에 홈 경로와 세션
 식별자를 더 막을 뿐 적재 시점 제거를 대체하지 않는다.
 
+**정화가 절단보다 먼저다.** 오류에 되돌려 주는 호출자 입력은 상한이 있는데, 먼저
+자르면 잘린 조각(홈 경로 접두 `/Users/ia…`, 세션 식별자 접두 `claude:ses…`)이 온전한
+일치가 아니게 되어 치환이 그 조각을 놓친다. 그래서 절단은 반드시 `OutputBoundary`
+안에서, 정화한 **뒤에** 한다.
+
 ## 인자 검증도 경계 안쪽에서 한다
 
 SDK는 도구 본문보다 **먼저** pydantic으로 인자를 검증한다. 그 단계에서 거부하면
 오류 텍스트가 SDK가 만든 여러 줄(문서 URL·입력 원문 그대로 메아리)이고 이 경계를
 지나지 않는다. 그래서 도구 인자 선언은 어떤 값도 거부하지 않도록 느슨하게 두고
 (`Any`), 타입 검증은 도구 본문 안에서 해 정화된 한 줄 `ToolError`로 돌려준다.
-느슨한 선언 때문에 사라지는 발행 스키마의 계약(`guard_id` 필수)은
-`_EvidenceServer.list_tools`가 `tools/list`에 다시 실어 원래대로 유지한다.
+
+느슨한 선언 탓에 pydantic이 발행 스키마에서 지워 버리는 계약(필수 표기, JSON-Schema
+타입)의 정본은 **`TOOL_INPUTS` 하나**다. `_EvidenceServer.list_tools`가 그 표대로
+`tools/list` 스키마를 되싣고, 도구 본문의 필수 검증도 같은 표를 읽는다 — 발행과
+강제가 각각 따로 적혀 조용히 어긋나는 길을 없앤다.
 """
 
 from __future__ import annotations
@@ -64,7 +72,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -103,11 +111,54 @@ VERSION_INPUT = (
     "사건·결정 목록은 버전과 무관하게 가드 전체다."
 )
 
-#: 느슨한 인자 선언 때문에 pydantic이 발행 스키마에서 빼 버리는 필수 인자.
-REQUIRED_INPUTS: dict[str, tuple[str, ...]] = {GUARD_EVIDENCE_TOOL: ("guard_id",)}
+
+@dataclass(frozen=True)
+class ToolInput:
+    """도구 인자 하나의 단일 선언.
+
+    인자 자체는 `Any`로 느슨하게 선언한다(SDK가 먼저 거부하면 그 오류 텍스트가 출력
+    경계를 지나지 않기 때문이다). 그래서 "필수인가"와 "어떤 JSON 타입인가"의 정본은
+    pydantic이 아니라 이 선언이고, 발행 스키마(`list_tools`)와 본문 검증이 **같은
+    것을 읽는다** — 한 곳만 고치면 둘 다 따라오므로 조용한 표류가 생기지 않는다.
+    """
+
+    #: 인자 이름 (발행 스키마의 property 키이자 본문이 받는 이름).
+    name: str
+    #: 발행 스키마에 실을 설명. 클라이언트가 보는 문구다.
+    description: str
+    #: 발행 스키마에 실을 JSON-Schema 타입 조각. 없으면 기계가 읽을 타입이 사라진다.
+    json_schema: dict[str, Any] = field(default_factory=dict)
+    #: 필수 여부. 발행 스키마의 `required`와 본문의 누락 검사가 이 값 하나를 본다.
+    required: bool = False
+
+
+#: 도구별 인자 선언표 — 인자가 없는 도구는 빈 항목으로 둔다(발행 스키마 대조에 쓰인다).
+TOOL_INPUTS: dict[str, tuple[ToolInput, ...]] = {
+    LIST_GUARDS_TOOL: (),
+    GET_REPORT_TOOL: (),
+    GUARD_EVIDENCE_TOOL: (
+        ToolInput(
+            name="guard_id",
+            description=GUARD_ID_INPUT,
+            json_schema={"type": "string"},
+            required=True,
+        ),
+        ToolInput(
+            name="version",
+            description=VERSION_INPUT,
+            json_schema={"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        ),
+    ),
+}
 
 #: 잘못된 인자를 되돌려 줄 때의 메아리 상한 — 진단에는 충분하고 응답은 한 줄로 남는다.
+#: 자르기는 **정화 뒤**에만 한다 (`OutputBoundary.echo`).
 MAX_ECHO = 120
+
+#: 문자열로 온 version이 정수로 받아들여지는 형태 — 평범한 십진수 하나뿐이다.
+#: `int()`에 그대로 맡기면 파이썬의 관대함(자릿수 구분 `_`, 전각·아랍숫자, `+` 부호)이
+#: 새어 `"1_0"`이 조용히 10이 된다. `\d`는 유니코드 숫자를 포함하므로 `[0-9]`로 못 박는다.
+_PLAIN_INT = re.compile(r"-?[0-9]+")
 
 #: 판정 가능 가드 기준 — decision/metrics의 단일 정의를 문구로 함께 실어 보낸다.
 DECIDABLE_CRITERION = (
@@ -117,6 +168,9 @@ DECIDABLE_CRITERION = (
 UNPROCESSED = "미처리"
 
 ALIAS_PREFIX = "S"
+
+#: `fail(echo=...)`의 "메아리 없음" 표식 — `None`도 되돌려 줄 값이라 쓸 수 없다.
+_NO_ECHO = object()
 
 
 # --- 출력 경계 ----------------------------------------------------------------
@@ -156,6 +210,9 @@ class OutputBoundary:
         return alias
 
     def text(self, value: str) -> str:
+        # 홈 치환이 별칭 치환보다 먼저다. 세션 식별자가 홈 경로를 품고 있으면 그
+        # 식별자는 별칭화를 빠져나가겠지만, 식별자는 `harness:raw` 꼴로 만들어지고
+        # 경로가 아니다 — 그 전제 위에서 순서를 고정한다.
         out = value.replace(self._home, "~") if self._home else value
         if self._pattern is None:
             return out
@@ -166,6 +223,19 @@ class OutputBoundary:
     def one_line(self, value: str) -> str:
         """오류 메시지용 — 정화 뒤 한 줄로 접는다 (스택 추적·줄바꿈 금지)."""
         return " ".join(self.text(value).split())
+
+    def echo(self, value: Any) -> str:
+        """오류에 되돌려 주는 호출자 입력 — 정화하고 한 줄로 접은 **뒤에** 자른다.
+
+        **순서가 곧 안전이다.** 먼저 자르면 잘린 조각(`/Users/ia…`, `claude:ses…`)이
+        온전한 일치가 아니게 되어 치환이 그 조각을 놓친다 — 정화 전 절단은 경계에
+        구멍을 낸다. 문자열이 아닌 값은 `repr`로 적는다(서버 정보가 아니라 호출자
+        입력이므로 되돌려 주는 것이 진단에 쓸모 있다). 공백뿐인 문자열도 `repr`로
+        적는다 — 한 줄로 접으면 아무것도 남지 않아 사유가 잘린 것처럼 보인다.
+        """
+        raw = value if isinstance(value, str) and value.strip() else repr(value)
+        text = self.one_line(raw)
+        return text if len(text) <= MAX_ECHO else text[:MAX_ECHO] + "…"
 
     def sanitize(self, value: Any) -> Any:
         """응답 구조를 재귀 순회하며 모든 문자열을 정확히 한 번 정화한다.
@@ -227,9 +297,17 @@ class _Snapshot:
             key=lambda spec: spec.version,
         )
 
-    def fail(self, message: str) -> ToolError:
-        """정화된 한 줄 사유만 담은 도구 오류 — 스택 추적도 저장 경로도 싣지 않는다."""
-        return ToolError(self.boundary.one_line(message))
+    def fail(self, message: str, *, echo: Any = _NO_ECHO) -> ToolError:
+        """정화된 한 줄 사유만 담은 도구 오류 — 스택 추적도 저장 경로도 싣지 않는다.
+
+        `echo`는 되돌려 줄 호출자 입력이다. 사유와 메아리는 **각각 한 번씩** 경계를
+        지난다(메아리는 그 뒤에 상한으로 잘린다) — 이미 정화된 문자열을 다시 정화하지
+        않는다.
+        """
+        reason = self.boundary.one_line(message)
+        if echo is not _NO_ECHO:
+            reason = f"{reason} {self.boundary.echo(echo)}"
+        return ToolError(reason)
 
     def emit(self, payload: dict) -> str:
         return json.dumps(self.boundary.sanitize(payload), ensure_ascii=False, indent=2)
@@ -409,20 +487,21 @@ def render_list_guards(store: AppendStore) -> str:
     return snapshot.emit({"guards": guards})
 
 
-def _echo(value: Any) -> str:
-    """잘못된 인자를 되돌려 줄 때의 메아리 — 서버 쪽 정보가 아니라 호출자 입력이다.
+def _check_required_inputs(snapshot: _Snapshot, tool: str, values: dict[str, Any]) -> None:
+    """선언표가 필수라고 한 인자가 비면 여기서 막는다.
 
-    경계가 홈 경로·세션 원문을 바꾸고 `one_line`이 한 줄로 접는다.
+    발행 스키마의 `required`와 **같은 표**를 읽는다 — 필수라고 알려 놓고 본문은 통과
+    시키는(또는 그 반대의) 표류가 생길 수 없다.
     """
-    text = value if isinstance(value, str) else repr(value)
-    return text if len(text) <= MAX_ECHO else text[:MAX_ECHO] + "…"
+    for spec in TOOL_INPUTS.get(tool, ()):
+        if spec.required and values.get(spec.name) is None:
+            raise snapshot.fail(f"{spec.name}가 필요하다 — {spec.description}")
 
 
 def _checked_guard_id(snapshot: _Snapshot, value: Any) -> str:
-    if value is None:
-        raise snapshot.fail("guard_id가 필요하다 — 조회할 가드 id를 문자열로 넘긴다")
+    # 누락(None)은 `_check_required_inputs`가 선언표를 근거로 이미 막았다.
     if not isinstance(value, str):
-        raise snapshot.fail(f"guard_id는 문자열이어야 한다: {_echo(value)}")
+        raise snapshot.fail("guard_id는 문자열이어야 한다:", echo=value)
     if not value.strip():
         raise snapshot.fail("guard_id는 비어 있지 않은 문자열이어야 한다")
     return value
@@ -432,16 +511,15 @@ def _checked_version(snapshot: _Snapshot, value: Any) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        raise snapshot.fail(f"version은 정수여야 한다: {_echo(value)}")
+        raise snapshot.fail("version은 정수여야 한다:", echo=value)
     if isinstance(value, int):
         return value
-    if isinstance(value, str):
-        # 일부 클라이언트는 숫자도 문자열로 보낸다 — 정수로 읽히면 받아들인다.
-        try:
-            return int(value.strip())
-        except ValueError:
-            pass
-    raise snapshot.fail(f"version은 정수여야 한다: {_echo(value)}")
+    if isinstance(value, str) and _PLAIN_INT.fullmatch(value.strip()):
+        # 일부 클라이언트는 숫자도 문자열로 보낸다 — 평범한 십진수면 받아들인다.
+        # `int()`에 곧장 맡기지 않는 이유: `"1_0"`이 조용히 10이 되는 등 파이썬의
+        # 관대함이 호출자 입력을 다시 해석해 버린다.
+        return int(value.strip())
+    raise snapshot.fail("version은 정수여야 한다:", echo=value)
 
 
 def render_guard_evidence(store: AppendStore, guard_id: Any, version: Any = None) -> str:
@@ -452,13 +530,16 @@ def render_guard_evidence(store: AppendStore, guard_id: Any, version: Any = None
     하고, 어긋나면 정화된 한 줄 `ToolError`다.
     """
     snapshot = _Snapshot(store)
+    _check_required_inputs(
+        snapshot, GUARD_EVIDENCE_TOOL, {"guard_id": guard_id, "version": version}
+    )
     guard_id = _checked_guard_id(snapshot, guard_id)
     version = _checked_version(snapshot, version)
     unreadable: EnforcementCheck | None = None
     try:
         view = build_guard_view(snapshot.dataset, guard_id)
     except DecisionError:
-        raise snapshot.fail(f"등록되지 않은 가드: {guard_id}") from None
+        raise snapshot.fail("등록되지 않은 가드:", echo=guard_id) from None
     except OSError as exc:
         # 뷰 구성이 최신 spec의 구현물 대조를 내부에서 하므로, 읽기 실패가 증거
         # 전체를 막는다. 참조를 뗀 사본으로 뷰만 세우고 사유는 아래에서 되붙인다.
@@ -520,15 +601,32 @@ def render_report_text(store: AppendStore, *, now: datetime | None = None) -> st
 # --- 서버 --------------------------------------------------------------------
 
 
-def _with_required_inputs(schema: dict[str, Any], required: tuple[str, ...]) -> dict[str, Any]:
-    """발행 스키마에 필수 인자 표기를 되돌린다 (원본은 건드리지 않는다)."""
+def published_input_schema(
+    schema: dict[str, Any], inputs: tuple[ToolInput, ...]
+) -> dict[str, Any]:
+    """선언표(`TOOL_INPUTS`)대로 발행 스키마를 되돌린다.
+
+    느슨한 `Any` 선언 때문에 pydantic이 지운 것은 둘이다 — 필수 표기와 JSON-Schema
+    타입. 타입이 없으면 클라이언트(특히 LLM)는 한국어 설명문으로만 인자 타입을
+    추측해야 한다. 검증은 여전히 도구 본문이 하고, 여기서는 **발행되는 계약만**
+    복원한다.
+
+    원본은 건드리지 않는다 — 넘어오는 dict는 SDK 툴 매니저가 들고 있는 캐시라서,
+    제자리 수정은 호출마다 스키마가 달라지는 길이 된다.
+    """
     patched = dict(schema)
     properties = {name: dict(value) for name, value in patched.get("properties", {}).items()}
-    for name in required:
-        # 느슨한 선언 때문에 붙은 `default: null`은 "필수"와 모순이라 걷어낸다.
-        properties.get(name, {}).pop("default", None)
+    for spec in inputs:
+        prop = dict(properties.get(spec.name, {}))
+        prop.update(spec.json_schema)
+        prop["description"] = spec.description
+        if spec.required:
+            # 느슨한 선언 때문에 붙은 `default: null`은 "필수"와 모순이라 걷어낸다.
+            prop.pop("default", None)
+        properties[spec.name] = prop
     patched["properties"] = properties
-    patched["required"] = sorted(set(patched.get("required", ())) | set(required))
+    declared = {spec.name for spec in inputs if spec.required}
+    patched["required"] = sorted(set(patched.get("required", ())) | declared)
     return patched
 
 
@@ -537,17 +635,24 @@ class _EvidenceServer(MCPServer):
 
     도구 인자는 pydantic이 아무 값도 거부하지 않도록 느슨하게 선언한다 — 거부하면
     그 오류 텍스트가 출력 경계를 지나지 않기 때문이다(모듈 문서 "인자 검증").
-    그 대가로 발행 스키마에서 사라지는 필수 표기를 여기서 되살려, 클라이언트가 보는
-    계약은 그대로 "guard_id 필수 / version 선택"으로 유지한다.
+    그 대가로 발행 스키마에서 사라지는 필수 표기와 타입을 `TOOL_INPUTS`대로 되살려,
+    클라이언트가 보는 계약은 그대로 "guard_id 필수 문자열 / version 선택 정수"다.
     """
 
     async def list_tools(self) -> list[MCPTool]:
         tools = await super().list_tools()
-        for tool in tools:
-            required = REQUIRED_INPUTS.get(tool.name)
-            if required:
-                tool.input_schema = _with_required_inputs(tool.input_schema, required)
-        return tools
+        return [
+            tool.model_copy(
+                update={
+                    "input_schema": published_input_schema(
+                        tool.input_schema, TOOL_INPUTS[tool.name]
+                    )
+                }
+            )
+            if TOOL_INPUTS.get(tool.name)
+            else tool
+            for tool in tools
+        ]
 
 
 def build_server(store: AppendStore, *, now: datetime | None = None) -> MCPServer:

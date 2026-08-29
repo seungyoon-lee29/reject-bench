@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from mcp import Client
+from mcp import Client, StdioServerParameters
 from mcp.server.mcpserver.exceptions import ToolError
 
 from rejectbench import (
@@ -101,6 +101,30 @@ def tool_input_schemas(server) -> dict[str, dict]:
             }
 
     return asyncio.run(run())
+
+
+def stdio_tool_input_schemas(store_root: Path, cwd: Path) -> dict[str, dict]:
+    """stdio 하위 프로세스로 실제 서버를 띄워 받은 `tools/list` 입력 스키마.
+
+    인프로세스 클라이언트는 같은 파이썬 객체를 보므로, 직렬화를 거친 실제 왕복에서도
+    같은 계약이 실리는지는 따로 확인해야 한다.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "rejectbench.mcp_server", "--store", str(store_root)],
+        env={**os.environ, "PYTHONPATH": str(repo_root)},
+        cwd=str(cwd),
+    )
+
+    async def run():
+        async with Client(params, read_timeout_seconds=60) as client:
+            return {
+                tool.name: tool.input_schema for tool in (await client.list_tools()).tools
+            }
+
+    # 하위 프로세스가 남지 않도록 상한을 건다 — 클라이언트가 종료 시 프로세스를 거둔다.
+    return asyncio.run(asyncio.wait_for(run(), timeout=120))
 
 
 def result_text(result) -> str:
@@ -408,6 +432,64 @@ def test_bad_argument_echo_is_sanitized_not_dropped(tmp_path):
     assert "S1" in text
 
 
+def prefix_fragments(needle: str, minimum: int = 6) -> list[str]:
+    """`needle`의 접두 조각들 (긴 것부터) — 조각 하나라도 남으면 경계가 새는 것이다."""
+    return [needle[:n] for n in range(len(needle), minimum - 1, -1)]
+
+
+def test_error_echo_is_truncated_only_after_sanitization(tmp_path):
+    """메아리 절단은 반드시 정화 **뒤**다.
+
+    먼저 자르면 잘린 조각(`/Users/ia…`, `claude:ses…`)이 온전한 일치가 아니게 되어
+    치환이 그 조각을 놓친다. 새는 구간은 상한 언저리뿐이라 길이 하나만 보는
+    테스트로는 잡히지 않으므로, 상한을 걸치는 패딩 길이를 훑는다.
+    """
+    store = planted_store(tmp_path / "store")
+    server = build_server(store, now=NOW)
+    leaks: list[tuple[str, int, str]] = []
+    for needle in (RAW_SESSION_A, f"{HOME}/x"):
+        for pad in range(100, 132):
+            text = result_text(
+                call_tool(
+                    server,
+                    GUARD_EVIDENCE_TOOL,
+                    {"guard_id": "planted-guard", "version": "P" * pad + needle},
+                )
+            )
+            assert "\n" not in text, (needle, pad)
+            # 상한은 그대로 산다 (여유분은 SDK 접두 + 사유 문구 몫이다).
+            assert len(text) <= mcp_server.MAX_ECHO + 60, (needle, pad, len(text))
+            leaked = next((frag for frag in prefix_fragments(needle) if frag in text), None)
+            if leaked is not None:
+                leaks.append((needle[:12], pad, leaked))
+    assert leaks == [], f"정화 전 절단으로 원문 조각이 살아 나갔다: {leaks[:5]}"
+
+    # 상한이 실제로 문다 — 아주 긴 입력도 한 줄 안에 접힌다.
+    huge = result_text(
+        call_tool(
+            server,
+            GUARD_EVIDENCE_TOOL,
+            {"guard_id": "planted-guard", "version": "P" * 5000 + RAW_SESSION_A},
+        )
+    )
+    assert len(huge) <= mcp_server.MAX_ECHO + 60
+    assert RAW_SESSION_A[:6] not in huge
+
+
+def test_short_error_echo_still_shows_the_substitution(tmp_path):
+    """자르지 않아도 되는 길이에서는 치환 결과가 그대로 보인다 (양성 대조)."""
+    store = planted_store(tmp_path / "store")
+    server = build_server(store, now=NOW)
+    text = result_text(
+        call_tool(
+            server,
+            GUARD_EVIDENCE_TOOL,
+            {"guard_id": "planted-guard", "version": f"{HOME}/x-{RAW_SESSION_A}"},
+        )
+    )
+    assert "~/x-S1" in text
+
+
 @pytest.mark.parametrize("name", [LIST_GUARDS_TOOL, GET_REPORT_TOOL])
 def test_argument_free_tools_tolerate_unexpected_arguments(tmp_path, name):
     """입력이 없는 도구도 낯선 인자로 SDK 오류를 내지 않는다."""
@@ -438,6 +520,111 @@ def test_tools_list_keeps_guard_id_required_and_version_optional(tmp_path):
     for name in (LIST_GUARDS_TOOL, GET_REPORT_TOOL):
         assert schemas[name].get("properties", {}) == {}
         assert schemas[name].get("required", []) == []
+
+
+EXPECTED_INPUT_TYPES = {
+    "guard_id": {"type": "string"},
+    "version": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+}
+
+
+def assert_evidence_schema_carries_the_contract(schema: dict) -> None:
+    """발행 스키마가 담아야 할 것: 필수 표기 + 설명 + 기계가 읽는 타입."""
+    assert schema["required"] == ["guard_id"]
+    properties = schema["properties"]
+    assert set(properties) == set(EXPECTED_INPUT_TYPES)
+    assert properties["guard_id"]["type"] == EXPECTED_INPUT_TYPES["guard_id"]["type"]
+    assert properties["version"]["anyOf"] == EXPECTED_INPUT_TYPES["version"]["anyOf"]
+    assert properties["guard_id"]["description"] == mcp_server.GUARD_ID_INPUT
+    assert properties["version"]["description"] == mcp_server.VERSION_INPUT
+    assert "default" not in properties["guard_id"]
+    assert properties["version"]["default"] is None
+
+
+def test_tools_list_publishes_machine_readable_argument_types(tmp_path):
+    """느슨한 `Any` 선언이 지운 JSON-Schema 타입을 발행 스키마가 되싣는다.
+
+    타입이 없으면 클라이언트(특히 LLM)는 한국어 설명문으로만 인자 타입을 추측해야 한다.
+    """
+    schemas = tool_input_schemas(build_server(planted_store(tmp_path / "store"), now=NOW))
+    assert_evidence_schema_carries_the_contract(schemas[GUARD_EVIDENCE_TOOL])
+
+
+def test_stdio_round_trip_publishes_the_same_schema(tmp_path):
+    """실제 stdio 하위 프로세스 핸드셰이크에서도 같은 계약이 실린다."""
+    root = tmp_path / "store"
+    planted_store(root)
+    schemas = stdio_tool_input_schemas(root, tmp_path)
+    assert set(schemas) == {LIST_GUARDS_TOOL, GUARD_EVIDENCE_TOOL, GET_REPORT_TOOL}
+    assert_evidence_schema_carries_the_contract(schemas[GUARD_EVIDENCE_TOOL])
+
+
+def test_tools_list_schema_is_byte_stable_across_calls(tmp_path):
+    """`tools/list`를 여러 번 불러도 같은 스키마다 — 덧씌우기가 누적되지 않는다."""
+    server = build_server(planted_store(tmp_path / "store"), now=NOW)
+    dumped = [
+        json.dumps(tool_input_schemas(server), sort_keys=True, ensure_ascii=False)
+        for _ in range(3)
+    ]
+    assert dumped[0] == dumped[1] == dumped[2]
+
+
+def test_published_schema_override_does_not_mutate_the_source_schema(tmp_path):
+    """덧씌우기는 원본(툴 매니저가 들고 있는 dict)을 건드리지 않는다."""
+    source = {
+        "type": "object",
+        "properties": {
+            "guard_id": {"title": "Guard Id", "description": mcp_server.GUARD_ID_INPUT},
+            "version": {
+                "default": None,
+                "title": "Version",
+                "description": mcp_server.VERSION_INPUT,
+            },
+        },
+        "title": "guard_evidenceArguments",
+    }
+    frozen = json.dumps(source, sort_keys=True, ensure_ascii=False)
+    patched = mcp_server.published_input_schema(
+        source, mcp_server.TOOL_INPUTS[GUARD_EVIDENCE_TOOL]
+    )
+    assert json.dumps(source, sort_keys=True, ensure_ascii=False) == frozen
+    assert_evidence_schema_carries_the_contract(patched)
+
+
+# --- 인자 선언은 한 곳뿐 (발행 스키마 ↔ 본문 검증 표류 방지) ---------------------
+
+
+def test_every_published_argument_comes_from_the_single_declaration(tmp_path):
+    """발행되는 인자 집합과 필수 표기는 선언표 하나에서만 나온다.
+
+    표에 등록하지 않은 인자를 가진 도구를 새로 붙이면 여기서 깨진다 — 조용히
+    `required: []`로 나가던 표류 경로를 막는다.
+    """
+    schemas = tool_input_schemas(build_server(planted_store(tmp_path / "store"), now=NOW))
+    assert set(mcp_server.TOOL_INPUTS) <= set(schemas), "표에만 있고 서버에 없는 도구가 있다"
+    for name, schema in schemas.items():
+        declared = mcp_server.TOOL_INPUTS.get(name, ())
+        assert set(schema.get("properties", {})) == {spec.name for spec in declared}, name
+        assert schema.get("required", []) == sorted(
+            spec.name for spec in declared if spec.required
+        ), name
+
+
+def test_declared_required_arguments_are_enforced_by_the_tool_body(tmp_path):
+    """표가 필수라고 한 인자는 도구 본문이 실제로 막는다 (정화된 한 줄 오류)."""
+    server = build_server(planted_store(tmp_path / "store"), now=NOW)
+    checked = 0
+    for name, inputs in mcp_server.TOOL_INPUTS.items():
+        required = [spec.name for spec in inputs if spec.required]
+        if not required:
+            continue
+        result = call_tool(server, name, {})
+        text = result_text(result)
+        assert result.is_error is True, name
+        assert "\n" not in text, name
+        assert required[0] in text, name
+        checked += 1
+    assert checked, "필수 인자를 가진 도구가 하나도 없다 — 표가 비었다"
 
 
 # --- §5 별칭 규칙 --------------------------------------------------------------
@@ -762,6 +949,58 @@ def test_guard_evidence_unknown_version_is_tool_error(tmp_path):
     text = result_text(result)
     assert "\n" not in text
     assert "9" in text
+
+
+#: 문자열 version이 정수로 받아들여지는 형태 — 평범한 십진수 하나(앞뒤 공백 허용)뿐.
+ACCEPTED_VERSION_STRINGS = [("2", 2), (" 2 ", 2), ("0002", 2), (2, 2)]
+#: `int()`에 그대로 맡기면 통과해 버리던 형태들 — 호출자 입력을 다시 해석하는 셈이다.
+REJECTED_VERSION_VALUES = ["1_0", "２", "+2", "2.0", "0x2", "", "  ", "one", "1 0", "٢"]
+
+
+@pytest.mark.parametrize("value,expected", ACCEPTED_VERSION_STRINGS)
+def test_version_accepts_plain_decimal_integers(tmp_path, value, expected):
+    store = planted_store(tmp_path / "store")
+    payload = json.loads(render_guard_evidence(store, "planted-guard", version=value))
+    assert payload["context"]["version"] == expected
+
+
+@pytest.mark.parametrize("value", REJECTED_VERSION_VALUES)
+def test_version_rejects_everything_that_is_not_a_plain_decimal_integer(tmp_path, value):
+    store = planted_store(tmp_path / "store")
+    result = call_tool(
+        build_server(store, now=NOW),
+        GUARD_EVIDENCE_TOOL,
+        {"guard_id": "planted-guard", "version": value},
+    )
+    text = result_text(result)
+    assert result.is_error is True, value
+    assert "정수여야 한다" in text, value
+    assert "\n" not in text
+
+
+def test_wellformed_but_absent_version_is_still_the_no_such_version_error(tmp_path):
+    """F4가 바꾸는 것은 '정수인가'뿐이다 — 없는 버전은 그대로 '없는 버전' 오류다."""
+    store = planted_store(tmp_path / "store")
+    for value in ("-1", "77", 77):
+        result = call_tool(
+            build_server(store, now=NOW),
+            GUARD_EVIDENCE_TOOL,
+            {"guard_id": "planted-guard", "version": value},
+        )
+        assert result.is_error is True, value
+        assert "없는 버전" in result_text(result), value
+
+
+def test_underscore_separated_version_is_not_silently_reinterpreted(tmp_path):
+    """`int("1_0")`은 10이다 — 파이썬의 관대함이 호출자 입력을 조용히 다시 읽으면 안 된다."""
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    store.append(make_spec(guard_id="guard-a", version=1, created_at=ts(0)))
+    store.append(make_spec(guard_id="guard-a", version=10, purpose="개정된 목적", created_at=ts(1)))
+    assert json.loads(render_guard_evidence(store, "guard-a", version=10))["context"]["version"] == 10
+    with pytest.raises(ToolError) as excinfo:
+        render_guard_evidence(store, "guard-a", version="1_0")
+    assert "정수여야 한다" in str(excinfo.value)
 
 
 # --- §4.3 get_report ----------------------------------------------------------
