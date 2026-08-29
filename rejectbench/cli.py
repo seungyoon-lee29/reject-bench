@@ -1,26 +1,36 @@
-"""GuardSpec 작성·등록·조회 CLI (T2). 표준 라이브러리만 사용한다.
+"""GuardSpec 작성·등록·조회 CLI (T2) + 세션 뒤 정책 판정 (T4). 표준 라이브러리만 사용한다.
 
     python -m rejectbench.cli validate --file draft.json
     python -m rejectbench.cli register --store DIR --file draft.json \
         [--enforcement-script PATH]
     python -m rejectbench.cli list --store DIR
     python -m rejectbench.cli show --store DIR --guard GUARD_ID [--version N]
+    python -m rejectbench.cli judge --store DIR [--model MODEL] \
+        [--approve-billing] [--skip-calibration] \
+        [--rejudge EVENT_ID --rejudge-reason 사유]
 
 draft JSON은 의미 필드만 담는다 — version·시각·해시는 등록부가 정한다:
 `guard_id`, `project`, `purpose`, `policy`, `exceptions`(선택, 기본 []),
 `allow_examples`, `block_examples`.
 
-종료 코드: 0 성공, 1 검증·등록부 오류(stderr에 사유), 2 사용법 오류.
+judge는 비용 승인 게이트가 기본 dry-run이다: `--approve-billing` 플래그나
+`REJECTBENCH_BILLING_APPROVED=1` 없이는 판정 대상 목록만 출력하고 과금 호출을
+한 건도 하지 않는다. API 키는 `OPENAI_API_KEY` 환경변수로만 읽는다.
+
+종료 코드: 0 성공(dry-run 포함), 1 검증·등록부·판정 오류(stderr에 사유), 2 사용법 오류.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
+from rejectbench import judge as judge_module
 from rejectbench.hashing import content_hash
+from rejectbench.judge import BILLING_ENV, JudgeError
 from rejectbench.records import SchemaError, to_json
 from rejectbench.registry import (
     GuardRegistry,
@@ -153,6 +163,60 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_judge(args: argparse.Namespace) -> int:
+    store = AppendStore(args.store)
+    rejudge = tuple(args.rejudge or ())
+    calibrate = not args.skip_calibration
+    summary = judge_module.billing_plan(
+        store, model_id=args.model, calibrate=calibrate, rejudge=rejudge
+    )
+    approved = bool(args.approve_billing) or os.environ.get(BILLING_ENV) == "1"
+    if not approved:
+        # 비용 승인 게이트 — 대상 목록만 출력하고 한 건도 호출하지 않는다.
+        _print_json(
+            {
+                "approved": False,
+                "note": "승인 없음 — dry-run. --approve-billing 또는 "
+                f"{BILLING_ENV}=1 로만 과금 호출을 승인한다",
+                **summary,
+            }
+        )
+        return 0
+    if summary["planned_llm_calls"] == 0:
+        _print_json({"approved": True, "judged": [], "failed_event_ids": [], **summary})
+        return 0
+    transport = judge_module.OpenAITransport()
+    result = judge_module.run_judge(
+        store,
+        transport=transport,
+        model_id=args.model,
+        calibrate=calibrate,
+        rejudge=rejudge,
+        rejudge_reason=args.rejudge_reason,
+    )
+    _print_json(
+        {
+            "approved": True,
+            **summary,
+            "judged": [
+                {"event_id": j.event_id, "verdict_id": j.verdict_id, "verdict": j.verdict.value}
+                for j in result.judged
+            ],
+            "failed_event_ids": list(result.failed_event_ids),
+            "calibrations": [
+                {
+                    "guard_id": c.guard_id,
+                    "guard_version": c.guard_version,
+                    "passed": c.record.passed,
+                    "reused": c.reused,
+                }
+                for c in result.calibrations
+            ],
+        }
+    )
+    return 0
+
+
 def _add_store_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store",
@@ -191,6 +255,36 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--version", type=int, help="버전 (기본: 최신)")
     show.set_defaults(func=_cmd_show)
 
+    judge = sub.add_parser(
+        "judge",
+        help="새 operation 사건을 LLM으로 정책 판정한다 (승인 없이는 dry-run)",
+    )
+    _add_store_option(judge)
+    judge.add_argument(
+        "--model",
+        default=judge_module.DEFAULT_MODEL_ID,
+        help=f"판정 모델 (기본: {judge_module.DEFAULT_MODEL_ID})",
+    )
+    judge.add_argument(
+        "--approve-billing",
+        action="store_true",
+        help=f"과금 호출 명시 승인 (env {BILLING_ENV}=1 로도 승인 가능)",
+    )
+    judge.add_argument(
+        "--skip-calibration",
+        action="store_true",
+        help="판정기 교정 생략 — 판정에 '교정 미실시'가 병기된다",
+    )
+    judge.add_argument(
+        "--rejudge",
+        action="append",
+        default=[],
+        metavar="EVENT_ID",
+        help="재판정할 사건 id (반복 가능) — 이전 판정은 보존된다",
+    )
+    judge.add_argument("--rejudge-reason", help="재판정 사유 (--rejudge 사용 시 필수)")
+    judge.set_defaults(func=_cmd_judge)
+
     return parser
 
 
@@ -198,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (DraftError, RegistryError, SchemaError) as exc:
+    except (DraftError, RegistryError, SchemaError, JudgeError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
