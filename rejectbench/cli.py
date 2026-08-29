@@ -1,4 +1,5 @@
-"""GuardSpec 작성·등록·조회 CLI (T2) + 세션 뒤 정책 판정 (T4). 표준 라이브러리만 사용한다.
+"""GuardSpec 작성·등록·조회 CLI (T2) + 세션 뒤 정책 판정 (T4) +
+사용자 검토·가드 결정 (T5). 표준 라이브러리만 사용한다.
 
     python -m rejectbench.cli validate --file draft.json
     python -m rejectbench.cli register --store DIR --file draft.json \
@@ -8,6 +9,15 @@
     python -m rejectbench.cli judge --store DIR [--model MODEL] \
         [--approve-billing] [--skip-calibration] \
         [--rejudge EVENT_ID --rejudge-reason 사유]
+    python -m rejectbench.cli review list --store DIR
+    python -m rejectbench.cli review record --store DIR --event EVENT_ID \
+        --utility useful|unnecessary|uncertain [--note TEXT]
+    python -m rejectbench.cli review demote --store DIR --event EVENT_ID --reason 사유
+    python -m rejectbench.cli guard show GUARD_ID --store DIR
+    python -m rejectbench.cli decide --store DIR --guard GUARD_ID \
+        --decision keep|modify|remove --evidence EVENT_ID [--evidence ...] \
+        --rationale TEXT [--modify-file draft.json] [--enforcement-script PATH]
+    python -m rejectbench.cli decisions --store DIR --guard GUARD_ID
 
 draft JSON은 의미 필드만 담는다 — version·시각·해시는 등록부가 정한다:
 `guard_id`, `project`, `purpose`, `policy`, `exceptions`(선택, 기본 []),
@@ -17,7 +27,12 @@ judge는 비용 승인 게이트가 기본 dry-run이다: `--approve-billing` �
 `REJECTBENCH_BILLING_APPROVED=1` 없이는 판정 대상 목록만 출력하고 과금 호출을
 한 건도 하지 않는다. API 키는 `OPENAI_API_KEY` 환경변수로만 읽는다.
 
-종료 코드: 0 성공(dry-run 포함), 1 검증·등록부·판정 오류(stderr에 사유), 2 사용법 오류.
+review·decide에는 LLM이 없다 — 전부 사용자 입력이다. `review list`는 전수
+검토 큐라서 사건을 선별해 빼는 옵션이 없고, `guard show`는 로컬 stdout 출력
+뿐이며 파일로 내보내는 경로를 만들지 않는다.
+
+종료 코드: 0 성공(dry-run 포함), 1 검증·등록부·판정·검토·결정 오류(stderr에
+사유), 2 사용법 오류.
 """
 
 from __future__ import annotations
@@ -29,15 +44,26 @@ import sys
 from pathlib import Path
 
 from rejectbench import judge as judge_module
+from rejectbench.dataset import Dataset
+from rejectbench.decision import (
+    DecisionError,
+    annotate_decision,
+    build_guard_view,
+    decision_history,
+    record_decision,
+    record_modify,
+    render_guard_view,
+)
 from rejectbench.hashing import content_hash
 from rejectbench.judge import BILLING_ENV, JudgeError
-from rejectbench.records import SchemaError, to_json
+from rejectbench.records import Decision, SchemaError, Utility, to_json
 from rejectbench.registry import (
     GuardRegistry,
     RegistryError,
     check_quality,
     enforcement_ref_for,
 )
+from rejectbench.review import ReviewError, demote_to_test, record_review, review_queue
 from rejectbench.store import AppendStore, production_root
 
 _REQUIRED_KEYS = ("guard_id", "project", "purpose", "policy", "allow_examples", "block_examples")
@@ -217,6 +243,179 @@ def _cmd_judge(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_store_dataset(store_root: str) -> tuple[AppendStore, Dataset]:
+    store = AppendStore(store_root)
+    return store, Dataset(store.load().records)
+
+
+def _cmd_review_list(args: argparse.Namespace) -> int:
+    _, dataset = _load_store_dataset(args.store)
+    queue = review_queue(dataset)
+    pending = []
+    for event_id in queue.pending_event_ids:
+        event = dataset.events[event_id]
+        pending.append(
+            {
+                "event_id": event_id,
+                "occurred_at": event.occurred_at.isoformat(),
+                "session_id": event.session_id,
+                "guard_id": event.guard_id,
+                "guard_version": event.guard_version,
+                "capture_status": event.capture_status.value,
+                "reason": event.reason,
+            }
+        )
+    _print_json(
+        {
+            "pending": pending,
+            "counts": {
+                "pending": len(pending),
+                "reviewed": queue.reviewed,
+                "test": queue.test,
+                "unknown": queue.unknown,
+                "unregistered": queue.unregistered,
+            },
+        }
+    )
+    return 0
+
+
+def _cmd_review_record(args: argparse.Namespace) -> int:
+    review = record_review(
+        AppendStore(args.store),
+        event_id=args.event,
+        utility=Utility(args.utility),
+        note=args.note,
+    )
+    _print_json(
+        {
+            "review_id": review.review_id,
+            "event_id": review.event_id,
+            "utility": review.utility.value,
+            "note": review.note,
+            "reviewed_at": review.reviewed_at.isoformat(),
+        }
+    )
+    return 0
+
+
+def _cmd_review_demote(args: argparse.Namespace) -> int:
+    amendment = demote_to_test(
+        AppendStore(args.store), event_id=args.event, reason=args.reason
+    )
+    _print_json(
+        {
+            "amendment_id": amendment.amendment_id,
+            "event_id": amendment.target_id,
+            "field": amendment.field,
+            "new_value": amendment.new_value,
+            "reason": amendment.reason,
+            "amended_at": amendment.amended_at.isoformat(),
+        }
+    )
+    return 0
+
+
+def _cmd_guard_show(args: argparse.Namespace) -> int:
+    _, dataset = _load_store_dataset(args.store)
+    print(render_guard_view(build_guard_view(dataset, args.guard_id)))
+    return 0
+
+
+def _decision_payload(outcome) -> dict:
+    decision = outcome.decision
+    annotation = outcome.annotation
+    return {
+        "decision_id": decision.decision_id,
+        "guard_id": decision.guard_id,
+        "decision": decision.decision.value,
+        "evidence_event_ids": list(decision.evidence_event_ids),
+        "rationale": decision.rationale,
+        "decided_at": decision.decided_at.isoformat(),
+        "resulting_guard_version": decision.resulting_guard_version,
+        "countable": annotation.countable,
+        "no_event_guard": annotation.no_event_guard,
+        "reasons": list(annotation.reasons),
+    }
+
+
+def _cmd_decide(args: argparse.Namespace) -> int:
+    store = AppendStore(args.store)
+    decision = Decision(args.decision)
+    evidence = tuple(args.evidence or ())
+    if decision is Decision.MODIFY:
+        if not args.modify_file:
+            raise DecisionError(
+                "modify 결정에는 --modify-file(새 GuardSpec draft)이 필수다"
+            )
+        draft = _load_draft(Path(args.modify_file))
+        if draft["guard_id"] != args.guard:
+            raise DecisionError(
+                f"draft.guard_id({draft['guard_id']})가 --guard({args.guard})와 다르다"
+            )
+        enforcement_ref = (
+            enforcement_ref_for(args.enforcement_script)
+            if args.enforcement_script
+            else None
+        )
+        outcome = record_modify(
+            store,
+            guard_id=args.guard,
+            evidence_event_ids=evidence,
+            rationale=args.rationale,
+            project=draft["project"],
+            purpose=draft["purpose"],
+            policy=draft["policy"],
+            exceptions=draft["exceptions"],
+            allow_examples=draft["allow_examples"],
+            block_examples=draft["block_examples"],
+            enforcement_ref=enforcement_ref,
+        )
+        _print_json(
+            {
+                **_decision_payload(outcome),
+                "enforcement": {
+                    "status": outcome.enforcement.status.value,
+                    "detail": outcome.enforcement.detail,
+                },
+            }
+        )
+        return 0
+    if args.modify_file or args.enforcement_script:
+        raise DecisionError("--modify-file/--enforcement-script는 modify 결정 전용이다")
+    outcome = record_decision(
+        store,
+        guard_id=args.guard,
+        decision=decision,
+        evidence_event_ids=evidence,
+        rationale=args.rationale,
+    )
+    _print_json(_decision_payload(outcome))
+    return 0
+
+
+def _cmd_decisions(args: argparse.Namespace) -> int:
+    _, dataset = _load_store_dataset(args.store)
+    if not any(gid == args.guard for gid, _ in dataset.specs_by_key):
+        raise DecisionError(f"등록되지 않은 가드: {args.guard}")
+    _print_json(
+        [
+            {
+                "decision_id": decision.decision_id,
+                "decision": decision.decision.value,
+                "evidence_event_ids": list(decision.evidence_event_ids),
+                "rationale": decision.rationale,
+                "decided_at": decision.decided_at.isoformat(),
+                "resulting_guard_version": decision.resulting_guard_version,
+                "countable": annotate_decision(dataset, decision).countable,
+                "no_event_guard": annotate_decision(dataset, decision).no_event_guard,
+            }
+            for decision in decision_history(dataset, args.guard)
+        ]
+    )
+    return 0
+
+
 def _add_store_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--store",
@@ -285,6 +484,79 @@ def build_parser() -> argparse.ArgumentParser:
     judge.add_argument("--rejudge-reason", help="재판정 사유 (--rejudge 사용 시 필수)")
     judge.set_defaults(func=_cmd_judge)
 
+    review = sub.add_parser("review", help="새 operation 사건의 전수 유용성 검토")
+    review_sub = review.add_subparsers(dest="review_command", required=True)
+
+    review_list = review_sub.add_parser(
+        "list",
+        help="검토 큐 전부를 나열한다 — 사건을 선별해 빼는 옵션은 없다",
+    )
+    _add_store_option(review_list)
+    review_list.set_defaults(func=_cmd_review_list)
+
+    review_record = review_sub.add_parser("record", help="사건 하나의 검토를 append한다")
+    _add_store_option(review_record)
+    review_record.add_argument("--event", required=True, help="event_id")
+    review_record.add_argument(
+        "--utility",
+        required=True,
+        choices=[u.value for u in Utility],
+        help="useful | unnecessary | uncertain(기록된 보류값)",
+    )
+    review_record.add_argument("--note", default="", help="검토 메모 (선택)")
+    review_record.set_defaults(func=_cmd_review_record)
+
+    review_demote = review_sub.add_parser(
+        "demote",
+        help="시험·강제 발동으로 확인된 사건을 사유 있는 amendment로 test 강등한다",
+    )
+    _add_store_option(review_demote)
+    review_demote.add_argument("--event", required=True, help="event_id")
+    review_demote.add_argument("--reason", required=True, help="강등 사유 (필수)")
+    review_demote.set_defaults(func=_cmd_review_demote)
+
+    guard = sub.add_parser("guard", help="가드별 최소 뷰")
+    guard_sub = guard.add_subparsers(dest="guard_command", required=True)
+    guard_show = guard_sub.add_parser(
+        "show",
+        help="세션 수·사건·정책/유용성 두 축·판정 가능 상태를 한 화면 텍스트로",
+    )
+    guard_show.add_argument("guard_id", help="guard_id")
+    _add_store_option(guard_show)
+    guard_show.set_defaults(func=_cmd_guard_show)
+
+    decide = sub.add_parser(
+        "decide",
+        help="keep | modify | remove 결정을 근거 사건과 함께 append한다",
+    )
+    _add_store_option(decide)
+    decide.add_argument("--guard", required=True, help="guard_id")
+    decide.add_argument(
+        "--decision", required=True, choices=[d.value for d in Decision]
+    )
+    decide.add_argument(
+        "--evidence",
+        action="append",
+        default=[],
+        metavar="EVENT_ID",
+        help="근거 사건 id (반복 가능) — 두 판단 모두 확정값인 operation 사건만",
+    )
+    decide.add_argument("--rationale", required=True, help="결정 사유")
+    decide.add_argument(
+        "--modify-file",
+        help="modify 전용: 새 GuardSpec draft JSON — 등록부 경유 새 버전 생성을 강제한다",
+    )
+    decide.add_argument(
+        "--enforcement-script",
+        help="modify 전용: 가드 스크립트 경로 — 해시 대조용, 절대 실행하지 않는다",
+    )
+    decide.set_defaults(func=_cmd_decide)
+
+    decisions = sub.add_parser("decisions", help="가드 하나의 결정 이력 (append 순서)")
+    _add_store_option(decisions)
+    decisions.add_argument("--guard", required=True, help="guard_id")
+    decisions.set_defaults(func=_cmd_decisions)
+
     return parser
 
 
@@ -292,7 +564,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (DraftError, RegistryError, SchemaError, JudgeError) as exc:
+    except (
+        DraftError,
+        RegistryError,
+        SchemaError,
+        JudgeError,
+        ReviewError,
+        DecisionError,
+    ) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
