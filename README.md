@@ -36,13 +36,13 @@
 - v7 문제정의: [`docs/문제정의/06-v7-문제정의.md`](docs/문제정의/06-v7-문제정의.md)
 - 인터뷰·finding 결정 기록: [`docs/문제정의/07-포트폴리오-인터뷰.md`](docs/문제정의/07-포트폴리오-인터뷰.md)
 - 기획 불변 입력: [`기획-입력.md`](기획-입력.md)
-- 행동 계약: [`.dryforge/spec.md`](.dryforge/spec.md)
-- 실행 계획: [`.dryforge/plan.md`](.dryforge/plan.md)
-- 설계 관장: [`.dryforge/handoff.md`](.dryforge/handoff.md)
+- 행동 계약: [`.dryforge/002/spec.md`](.dryforge/002/spec.md) (v1 본체는 [`.dryforge/001/spec.md`](.dryforge/001/spec.md))
+- 실행 계획: [`.dryforge/002/plan.md`](.dryforge/002/plan.md)
+- 설계 관장: [`.dryforge/002/handoff.md`](.dryforge/002/handoff.md)
 - 도메인 용어: [`CONTEXT.md`](CONTEXT.md)
 - 적대 리뷰(심사 자료): [`docs/v7-기획-적대리뷰.md`](docs/v7-기획-적대리뷰.md)
 
-**실행 상태와 현재 frontier는 [`.dryforge/plan.md`](.dryforge/plan.md)와 [`HANDOFF.md`](HANDOFF.md)만 기록합니다.** 과거 01~05 문제정의와 수집기 v0 실측은 실패와 방향 변경의 근거로 보존하며, 05는 현재 정본이 아닙니다.
+**실행 상태와 현재 frontier는 [`.dryforge/002/plan.md`](.dryforge/002/plan.md)와 [`HANDOFF.md`](HANDOFF.md)만 기록합니다.** 과거 01~05 문제정의와 수집기 v0 실측은 실패와 방향 변경의 근거로 보존하며, 05는 현재 정본이 아닙니다.
 
 ## 사용 (v1 CLI)
 
@@ -53,6 +53,16 @@
 - `review list|record|demote` — 새 운영 사건 전수 검토와 test 강등
 - `guard show`/`decide`/`decisions` — 두 판단 축 조회와 `keep|modify|remove` 결정·이력
 - `report` — 원수 `N/D` 병기 보고서 생성
+
+## 조회 (MCP 서버)
+
+AI 코딩 세션이 증거를 그 자리에서 물어볼 수 있게, 저장소 루트 `.mcp.json`에 읽기 전용 MCP 서버 하나가 등록돼 있습니다. 도구는 가드 목록·가드별 증거·전체 보고서 3종이며, 전부 조회만 합니다 — 기록·판정·검토·결정은 계속 CLI로만 합니다.
+
+- 쓰기 도구가 없고 store를 바꾸지 않습니다. store가 없어도 디렉터리를 만들지 않고, 가드 스크립트는 해시 대조용으로 읽기만 하고 실행하지 않습니다.
+- 응답에는 홈 절대 경로와 세션 식별자 원문이 나오지 않습니다. 홈 경로는 꼬리를 보존한 채 `~`로 바뀌고, 세션은 한 응답 안에서만 유효한 별칭(`S1`, `S2` …)으로 바뀝니다.
+- 등록은 이 저장소에만 합니다. 전역 등록을 하지 않는 이유는 첫 자연 사건의 기준선 측정이 도구 보고서를 보기 전 복원을 요구하는데, 전역 등록이면 다른 저장소 세션의 자동 조회와 부딪히기 때문입니다. 전역 확장은 기준선 측정 뒤 별도 결정입니다.
+- **첫 자연 사건의 기준선 측정을 마치기 전에는 가드별 증거·전체 보고서를 조회하지 않습니다.** 도구 보고서를 먼저 읽으면 [`docs/관찰-프로토콜.md`](docs/관찰-프로토콜.md)가 요구하는 transcript+git 복원이 오염되기 때문입니다. 가드 목록 조회는 이 제약을 받지 않습니다.
+- 이 표면은 조회 편의이며 보고서·지표·관측 상태를 바꾸지 않습니다. v1 주장 범위와도 무관합니다.
 
 ## 기존 수집기 v0
 

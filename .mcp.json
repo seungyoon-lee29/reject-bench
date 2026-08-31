@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "rejectbench-evidence": {
+      "command": "/Users/ian/.local/bin/uv",
+      "args": [
+        "run",
+        "--project",
+        "/Users/ian/workspace/reject-bench",
+        "python",
+        "-m",
+        "rejectbench.mcp_server"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/ian/workspace/reject-bench"
+      }
+    }
+  }
+}

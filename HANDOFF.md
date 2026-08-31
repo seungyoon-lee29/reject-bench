@@ -1,28 +1,41 @@
-# 핸드오프 — v7 구현 주기(T1~T6) 완료·관측창 오픈, 통합 결정 대기 (2026-08-29)
+# 핸드오프 — 증거 조회 MCP 서버 완료, PR 검토 대기 (2026-08-29)
 
 ## 지금 하던 것
 
-dryforge go로 T1~T6을 브랜치 `dryforge/v7-build`에 구현 완료했다(main 미변경). 태스크별 red-green + 독립 스펙 검수(T1~T3) + 완료 게이트 `uv run pytest` 357건 exit 0 (`c06ed81`). 관측창은 열려 있다: 관찰 프로토콜 선등록(`docs/관찰-프로토콜.md` — 종료 조건 4주 또는 판정 가능 가드 1개 성립, Codex 범위 밖), 실존 가드 2종 v1 등록(`data/v7`), 배선 설치(`docs/배선-목록.md` — 전역·reply-gate settings.json이 래퍼 경유, 백업 생성됨). 문서층은 기존 관장 체계 유지 결정 — 추가는 `rejectbench/AGENTS.md` 신설과 CLAUDE/AGENTS/README 최소 추기뿐.
+증거 조회 MCP 증분(T7)을 `dryforge/mcp-evidence-server` 브랜치에서 완료하고, 사용자 결정에 따라 원격에 올려 PR을 열었다. main 병합은 하지 않았다. 이번 주기 계약 문서 3종은 `.dryforge/002/`로 아카이브했다(루트에는 진행 중인 주기가 없다).
+
+신규 파일 3개: `rejectbench/mcp_server.py`(741줄), `tests/test_mcp_server.py`(1,240줄, 신규 74건), `.mcp.json`. **기존 모듈은 한 줄도 바뀌지 않았다** — 그 밖의 diff는 `pyproject.toml`·`uv.lock`(SDK 추가)과 문서뿐이다.
+
+검증: `uv run pytest` exit 0, **431건**(기존 357 + 신규 74). 등록 항목 그대로 저장소 밖 작업 디렉터리에서 stdio 하위 프로세스를 띄워 `tools/list`(3종) → `list_guards` 왕복 1건 성공, 호출 전후 운영 store 불변, 잔여 프로세스 없음.
+
+독립 검토 3회에서 닫은 차단 사항 6건: ① SDK 인자 검증 오류가 정화 경계를 우회해 호출자 입력을 그대로 되비추던 경로 ② 보고서 응답의 별칭표가 본문보다 **이전** 스냅샷에서 만들어지던 순서 ③ 오류 메아리를 정화 **전에** 잘라 잘린 경로·식별자 조각이 살아남던 문제 ④ 자릿수 한도(4300)를 넘는 십진수 `version`이 `int()`에서 터져 예외가 도구 밖으로 새던 경로 ⑤ 문서와 어긋나던 적재 스냅샷 규칙 ⑥ 기준선 측정 규율이 임시 문서에만 있고 진입 문서에는 없던 문제(지금은 `CLAUDE.md` 비협상 ⑦).
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**최종 리뷰 통과 후 통합 결정**: `dryforge/v7-build`를 main에 머지할지(PR/직접/보류) 사용자가 정한다. 통합 후에야 reply-gate 배포 잔여 작업(1차 관측 무대) 착수.
+**PR 검토 결과를 확인하고 병합 여부를 결정한다.** 병합 뒤에는 미결 2·3을 v1 본체 주기로 넘길지 판단한다.
 
 ## 미결 결정
 
-1. **검토 큐 2건 처리** — 구현 중 전역 가드가 에이전트 명령을 차단해 `operation` 사건 2건이 기록됨(`ev-e767…`, `ev-94f0…`). `review list`로 보고 test 강등이든 유용성 판정이든 사용자가 결정
-2. **v0 `hooks/collect.py` 퇴역** — 배선 병행 상태 확인 후 별도 커밋(`docs/배선-목록.md` cutover 절)
-3. **판정 첫 과금 호출** — 사건이 쌓인 뒤 `judge --approve-billing` 시점에 승인(기본 dry-run). 모델 기본 gpt-5-mini, temperature 거부 시 settings 조정
-4. **외부 검증(X1)** — O2 뒤에만
+1. **PR 병합** — 검토 뒤 main 병합 여부. main은 origin보다 1커밋 앞서 있었고(3-doc 커밋 `56f2012`) 이 브랜치를 올리며 함께 올라갔다
+2. **오류 텍스트가 호출자가 준 `guard_id`를 되비추는 것** — 정화는 거치지만 호출자가 경로를 넣으면 `~/…`로 돌아온다. 서버 쪽 경로는 절대 노출되지 않는다. 진단 편의를 택할지 되비춤을 뺄지 결정
+3. **적재 시점 4000자 절단의 잘린 경로 조각** — `recorder.py`가 기록 시점에 `reason`을 4000자로 자른다. 홈 경로나 세션 식별자가 그 경계에 걸치면 부분 문자열로 저장돼 조회 시점 정화 경계가 잡지 못한다. 이번 증분 범위 밖(기존 모듈)이라 손대지 않았다 — v1 본체 수정 주기에서 처리할지 결정
+4. **검토 큐 2건 처리** — `ev-e7673c61…`·`ev-94f0ca1c…`(둘 다 `block-dangerous-git` 자기차단). `review demote --reason`으로 test 강등 또는 유용성 판정
+5. **reply-gate 배포 잔여 작업** — 1차 관측 무대. `protect-live-reports` 발동 0건이라 O1이 이 작업 없이는 진전 없음
+6. **v0 `hooks/collect.py` 퇴역** — 병행 배선 확인 후 별도 커밋(`docs/배선-목록.md` cutover 절)
+7. **판정 첫 과금 호출 승인** — `judge --approve-billing` 시점(기본 gpt-5-mini)
+8. **reply-gate `.claude/settings.json` 변경분 커밋** — 그 저장소에서 비커밋
+9. **MCP 서버 전역 등록 확장** — 기준선 측정 1회를 마친 뒤에만 판단(지금은 저장소 로컬 등록만)
+10. **외부 검증(X1)** — O2 뒤에만
 
 ## 함정
 
-- 시험·강제 발동은 반드시 `REJECTBENCH_TEST_SESSION` 아래에서 — 플래그 없는 발동은 `operation`으로 기록된다 (배선이 살아 있다!)
-- 전역 가드는 명령 문자열 전문 매칭 — 위험 패턴 텍스트를 heredoc으로 쓰면 자기 차단된다. 파일 도구로 쓸 것 (`rejectbench/AGENTS.md` 함정 절)
-- 배선 명령은 `uv run --project …` 필수 — 맨 `python3 -m`은 패키지를 못 찾는다
-- reply-gate `.claude/settings.json` 변경분은 그 저장소에서 비커밋 — 커밋은 사용자 소관 (백업 `settings.json.bak-1787966866`)
-- 산입·post-remove·신규 가드 표기는 파생 계산이 정본 — 저장값 신뢰 금지 (`rejectbench/AGENTS.md`)
-- 판정 교정 레코드는 사이드카 `calibration.jsonl`, 기준선은 `baseline.json` 관례
-- 관찰 프로토콜 변경은 사유 있는 추기로만. 실행 상태는 plan+HANDOFF만 기록
+- `dryforge:ready`/`go`는 사용자 직접 실행 전용 — 에이전트가 호출 불가
+- 이 저장소는 `.dryforge/` 계약 문서를 git 추적한다(`worktrees/`·`status.json`만 제외) — go 기본 gitignore 규칙 적용 금지. 끝난 주기는 번호 폴더(`001/`, `002/`)에 있고 진행 중인 주기만 루트에 온다
+- 배선이 살아 있다 — 시험·강제 발동은 반드시 `REJECTBENCH_TEST_SESSION` 아래에서. 픽스처에 위험 패턴 텍스트를 쓸 땐 heredoc 금지, 파일 도구로(전역 가드 자기차단)
+- `uv run --project`는 작업 디렉터리를 바꾸지 않는다 — `package = false`라 저장소 밖에서 실행하면 `python -m rejectbench.*`가 모듈을 못 찾는다. `.mcp.json`은 `env.PYTHONPATH`로 이 의존을 없앴다
+- 설치된 SDK는 mcp 2.x — v1의 `FastMCP`는 `MCPServer`로 이름이 바뀌었고, `ToolError`에는 `Error executing tool <이름>: ` 접두가 붙는다. 예상 못 한 예외가 새면 SDK가 사유를 지워 호출자가 단서를 못 받는다
+- 구현층 규칙·함정 정본은 `rejectbench/AGENTS.md`(산입·post-remove 파생 정본, 교정 사이드카 `calibration.jsonl`, 조회 표면의 단일 출력 경계, modify 시 `--enforcement-script` 필수 등)
+- `get_report` 동일성 테스트는 §4.3(보고서 원문 그대로)과 §5(정화)가 부딪히는 순간 일부러 red가 된다 — 보고서에 세션 식별자가 실리면 그때 둘 중 하나를 골라야 한다
+- 첫 자연 사건은 도구 보고서 열람 전 transcript+git 기준선 측정(`docs/관찰-프로토콜.md`). **전역 등록을 피한 것으로 이 위험이 다 사라지지는 않는다** — 전역 가드의 관측 범위는 모든 저장소 세션이고 지금까지의 운영 사건 2건은 둘 다 이 저장소에서 났다. 이 저장소 세션이 기준선 복원 전에 가드별 증거·보고서를 부르면 같은 규율과 부딪힌다(규칙 정본은 `CLAUDE.md` 비협상 ⑦)
 - `.claude/settings.json.bak-*`, `.codex/config.toml.bak-*`는 사용자 소유 비추적 백업 — 건드리지 않는다
-- `docs/문제정의/01~05`·심사 스킬은 보존 결정(3중 정본 + 2026-08-28 재확인) — 폴더 정리로 지우지 않는다
+- `docs/문제정의/01~05`·심사 스킬은 보존 결정 — 폴더 정리로 지우지 않는다
