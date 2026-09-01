@@ -564,3 +564,27 @@ class TestOpenAITransport:
         transport = OpenAITransport(env={"OPENAI_API_KEY": "sk-test-secret"}, opener=opener)
         with pytest.raises(TransportError):
             transport.complete(model_id="m", messages=[], settings={})
+
+
+class TestDefaultConfigCoherence:
+    """기본 모델과 기본 설정이 서로 모순이 아닌지 — 상수 수준 회귀."""
+
+    def test_default_model_accepts_the_default_settings(self):
+        """기본값끼리 배타적이면 판정이 전량 실패한다.
+
+        실제로 그랬다: `DEFAULT_MODEL_ID`가 `gpt-5-mini`이고
+        `DEFAULT_MODEL_SETTINGS`가 `{"temperature": 0}`이던 동안, gpt-5 계열이
+        temperature 고정을 거부해(HTTP 400 "Only the default (1) value is
+        supported") 첫 과금 호출이 교정 0/8로 전량 실패하고 `verdict_failure`
+        LossRecord만 남았다.
+
+        이 부류의 결함은 실호출 없이는 잡히지 않고 테스트는 네트워크 금지다.
+        그래서 **알려진 비호환만이라도** 상수 수준에서 못 박는다 — 기본 모델을
+        gpt-5 계열로 되돌리면 여기서 걸린다.
+        """
+        if DEFAULT_MODEL_ID.startswith("gpt-5"):
+            assert "temperature" not in DEFAULT_MODEL_SETTINGS, (
+                f"{DEFAULT_MODEL_ID}는 temperature를 고정할 수 없다 — "
+                "기본 모델을 바꾸거나 기본 설정에서 temperature를 빼라. "
+                "둘 다 두면 판정이 한 건도 성립하지 않는다"
+            )
