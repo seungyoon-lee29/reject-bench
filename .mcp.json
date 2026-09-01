@@ -11,7 +11,8 @@
         "rejectbench.mcp_server"
       ],
       "env": {
-        "PYTHONPATH": "/Users/ian/workspace/reject-bench"
+        "PYTHONPATH": "/Users/ian/workspace/reject-bench",
+        "PYTHONDONTWRITEBYTECODE": "1"
       }
     }
   }

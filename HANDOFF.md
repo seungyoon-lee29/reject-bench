@@ -1,41 +1,42 @@
-# 핸드오프 — 증거 조회 MCP 서버 완료, PR 검토 대기 (2026-08-29)
+# 핸드오프 — Dryforge 002 리뷰 수정 완료, PR 생성 전 (2026-09-01)
 
 ## 지금 하던 것
 
-증거 조회 MCP 증분(T7)을 `dryforge/mcp-evidence-server` 브랜치에서 완료하고, 사용자 결정에 따라 원격에 올려 PR을 열었다. main 병합은 하지 않았다. 이번 주기 계약 문서 3종은 `.dryforge/002/`로 아카이브했다(루트에는 진행 중인 주기가 없다).
+PR #1은 `main`의 `b4c88032847bd870dcc975a3b8d358d3a806455e`로 병합됐다. 병합 뒤 리뷰에서 확인된 MCP 조회 표면 결함을 `fix/dryforge-002-review` 브랜치의 구현 커밋 `933045c7932be39063e3b63a9b07f8e18f6b21be`로 수정했다. 이 브랜치는 아직 원격에 올리지 않았다.
 
-신규 파일 3개: `rejectbench/mcp_server.py`(741줄), `tests/test_mcp_server.py`(1,240줄, 신규 74건), `.mcp.json`. **기존 모듈은 한 줄도 바뀌지 않았다** — 그 밖의 diff는 `pyproject.toml`·`uv.lock`(SDK 추가)과 문서뿐이다.
+수정 범위:
 
-검증: `uv run pytest` exit 0, **431건**(기존 357 + 신규 74). 등록 항목 그대로 저장소 밖 작업 디렉터리에서 stdio 하위 프로세스를 띄워 `tools/list`(3종) → `list_guards` 왕복 1건 성공, 호출 전후 운영 store 불변, 잔여 프로세스 없음.
+- 홈 경로를 품은 세션 ID는 홈 치환 전에 별칭화하고, `e`·`-` 같은 짧은 ID가 JSON 키·날짜·경로·도메인 값을 훼손하지 않도록 값 전체·완전한 토큰 경계를 적용했다. 고정 JSON 키는 공개 스키마로 보존한다.
+- 세 도구의 예상 밖 예외를 정적 한 줄 `ToolError`로 바꿔 SDK 로그·stderr에 traceback, 저장 경로, 홈 경로가 새지 않게 했다. 미등록 가드와 없는 버전도 호출자 입력을 되비추지 않는다.
+- `.mcp.json`에 `PYTHONDONTWRITEBYTECODE=1`을 넣어 등록 서버 기동이 저장소에 `__pycache__`·`.pyc`를 만들지 않게 했다.
+- `.dryforge/002/` 계약의 구현 diff 예외를 명확히 하고, 아카이브 뒤 깨진 `.dryforge/{spec,plan,handoff}.md` 정본 참조를 `001/`·`002/`로 고쳤다.
+- Standards/Spec 두 SubAgent가 독립 리뷰한 뒤 서로의 반례를 소크라테스식으로 검토했다. 최종 결과는 Standards hard finding 0·smell 0, Spec 행동 결함 0·scope creep 0이다. 마지막 P3 문서 표현도 `.dryforge/002/plan.md`에서 정본과 맞췄다.
 
-독립 검토 3회에서 닫은 차단 사항 6건: ① SDK 인자 검증 오류가 정화 경계를 우회해 호출자 입력을 그대로 되비추던 경로 ② 보고서 응답의 별칭표가 본문보다 **이전** 스냅샷에서 만들어지던 순서 ③ 오류 메아리를 정화 **전에** 잘라 잘린 경로·식별자 조각이 살아남던 문제 ④ 자릿수 한도(4300)를 넘는 십진수 `version`이 `int()`에서 터져 예외가 도구 밖으로 새던 경로 ⑤ 문서와 어긋나던 적재 스냅샷 규칙 ⑥ 기준선 측정 규율이 임시 문서에만 있고 진입 문서에는 없던 문제(지금은 `CLAUDE.md` 비협상 ⑦).
+검증: `uv run pytest` **439 passed in 6.72s**, `uv lock --check` exit 0, `git diff --check` exit 0, `AGENTS.md == CLAUDE.md`, `.mcp.json` JSON 파싱 성공, 001/002 정본 대상 존재 확인. 테스트와 공개 MCP 재현은 임시 store만 썼고, 운영 `guard_evidence`·`get_report`는 호출하지 않았다.
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**PR 검토 결과를 확인하고 병합 여부를 결정한다.** 병합 뒤에는 미결 2·3을 v1 본체 주기로 넘길지 판단한다.
+`git push -u origin fix/dryforge-002-review`로 구현 커밋과 이 HANDOFF 후속 커밋을 올린 뒤 `main` 대상 PR을 연다. 병합 뒤 첫 자연 사건 기준선은 `docs/관찰-프로토콜.md`의 transcript+git 절차로 먼저 측정하고, 그 전에는 가드별 증거·전체 보고서를 조회하지 않는다.
 
 ## 미결 결정
 
-1. **PR 병합** — 검토 뒤 main 병합 여부. main은 origin보다 1커밋 앞서 있었고(3-doc 커밋 `56f2012`) 이 브랜치를 올리며 함께 올라갔다
-2. **오류 텍스트가 호출자가 준 `guard_id`를 되비추는 것** — 정화는 거치지만 호출자가 경로를 넣으면 `~/…`로 돌아온다. 서버 쪽 경로는 절대 노출되지 않는다. 진단 편의를 택할지 되비춤을 뺄지 결정
-3. **적재 시점 4000자 절단의 잘린 경로 조각** — `recorder.py`가 기록 시점에 `reason`을 4000자로 자른다. 홈 경로나 세션 식별자가 그 경계에 걸치면 부분 문자열로 저장돼 조회 시점 정화 경계가 잡지 못한다. 이번 증분 범위 밖(기존 모듈)이라 손대지 않았다 — v1 본체 수정 주기에서 처리할지 결정
-4. **검토 큐 2건 처리** — `ev-e7673c61…`·`ev-94f0ca1c…`(둘 다 `block-dangerous-git` 자기차단). `review demote --reason`으로 test 강등 또는 유용성 판정
-5. **reply-gate 배포 잔여 작업** — 1차 관측 무대. `protect-live-reports` 발동 0건이라 O1이 이 작업 없이는 진전 없음
-6. **v0 `hooks/collect.py` 퇴역** — 병행 배선 확인 후 별도 커밋(`docs/배선-목록.md` cutover 절)
-7. **판정 첫 과금 호출 승인** — `judge --approve-billing` 시점(기본 gpt-5-mini)
-8. **reply-gate `.claude/settings.json` 변경분 커밋** — 그 저장소에서 비커밋
-9. **MCP 서버 전역 등록 확장** — 기준선 측정 1회를 마친 뒤에만 판단(지금은 저장소 로컬 등록만)
-10. **외부 검증(X1)** — O2 뒤에만
+1. **적재 시점 4000자 절단의 잘린 경로 조각** — `recorder.py`가 `reason`을 4000자로 자를 때 홈 경로나 세션 ID 경계가 잘리면 조회 경계가 원문 전체를 인식하지 못할 수 있다. 기존 모듈 범위라 이번 수정에서는 건드리지 않았다.
+2. **세션 ID 문법 또는 typed provenance** — 현 스키마는 임의 non-empty 문자열을 허용한다. 출력 시점에는 `prefix<session-id>suffix`가 실제 세션 언급인지 우연한 일반 텍스트인지 구별할 수 없어, 현재 계약은 값 전체·완전한 토큰만 별칭화한다. 임의 부분문자열까지 원문 0회를 절대 보장하려면 적재 계약을 먼저 강화해야 한다.
+3. **검토 큐 2건** — 이전 HANDOFF가 기록한 `block-dangerous-git` 자기차단 2건은 기준선 오염 방지를 위해 이번 세션에서 재조회하지 않았다. 기준선 뒤 `review demote --reason` 또는 유용성 판정을 결정한다.
+4. **reply-gate 배포 잔여 작업** — 1차 관측 무대이며 `protect-live-reports` 자연 발동 관측이 필요하다.
+5. **v0 `hooks/collect.py` 퇴역** — 병행 배선 확인 뒤 별도 커밋으로 처리한다.
+6. **판정 첫 과금 호출 승인** — `judge --approve-billing`은 별도 사용자 승인 전 실행하지 않는다.
+7. **reply-gate `.claude/settings.json` 변경분 커밋** — 해당 저장소에서 아직 처리할 일이다.
+8. **MCP 서버 전역 등록 확장** — 첫 자연 사건 기준선 측정 뒤에만 판단한다. 현재는 저장소 로컬 등록뿐이다.
+9. **외부 검증(X1)** — O2 뒤에만 진행한다.
 
 ## 함정
 
-- `dryforge:ready`/`go`는 사용자 직접 실행 전용 — 에이전트가 호출 불가
-- 이 저장소는 `.dryforge/` 계약 문서를 git 추적한다(`worktrees/`·`status.json`만 제외) — go 기본 gitignore 규칙 적용 금지. 끝난 주기는 번호 폴더(`001/`, `002/`)에 있고 진행 중인 주기만 루트에 온다
-- 배선이 살아 있다 — 시험·강제 발동은 반드시 `REJECTBENCH_TEST_SESSION` 아래에서. 픽스처에 위험 패턴 텍스트를 쓸 땐 heredoc 금지, 파일 도구로(전역 가드 자기차단)
-- `uv run --project`는 작업 디렉터리를 바꾸지 않는다 — `package = false`라 저장소 밖에서 실행하면 `python -m rejectbench.*`가 모듈을 못 찾는다. `.mcp.json`은 `env.PYTHONPATH`로 이 의존을 없앴다
-- 설치된 SDK는 mcp 2.x — v1의 `FastMCP`는 `MCPServer`로 이름이 바뀌었고, `ToolError`에는 `Error executing tool <이름>: ` 접두가 붙는다. 예상 못 한 예외가 새면 SDK가 사유를 지워 호출자가 단서를 못 받는다
-- 구현층 규칙·함정 정본은 `rejectbench/AGENTS.md`(산입·post-remove 파생 정본, 교정 사이드카 `calibration.jsonl`, 조회 표면의 단일 출력 경계, modify 시 `--enforcement-script` 필수 등)
-- `get_report` 동일성 테스트는 §4.3(보고서 원문 그대로)과 §5(정화)가 부딪히는 순간 일부러 red가 된다 — 보고서에 세션 식별자가 실리면 그때 둘 중 하나를 골라야 한다
-- 첫 자연 사건은 도구 보고서 열람 전 transcript+git 기준선 측정(`docs/관찰-프로토콜.md`). **전역 등록을 피한 것으로 이 위험이 다 사라지지는 않는다** — 전역 가드의 관측 범위는 모든 저장소 세션이고 지금까지의 운영 사건 2건은 둘 다 이 저장소에서 났다. 이 저장소 세션이 기준선 복원 전에 가드별 증거·보고서를 부르면 같은 규율과 부딪힌다(규칙 정본은 `CLAUDE.md` 비협상 ⑦)
-- `.claude/settings.json.bak-*`, `.codex/config.toml.bak-*`는 사용자 소유 비추적 백업 — 건드리지 않는다
-- `docs/문제정의/01~05`·심사 스킬은 보존 결정 — 폴더 정리로 지우지 않는다
+- 첫 자연 사건 기준선 전에는 `guard_evidence`·`get_report`를 호출하지 않는다. 등록 확인용 기동과 `list_guards`만 허용된다.
+- 테스트는 반드시 임시 store만 쓰고, 시험·강제 발동은 `REJECTBENCH_TEST_SESSION` 아래에서만 한다. 판정 과금 호출은 `--approve-billing` 승인 전 금지다.
+- 세션 별칭 경계는 값 전체·완전한 `\w` 토큰이다. 단어에 붙은 동일 부분문자열은 증거 값 보존을 위해 바꾸지 않으며, 일반 값 전체·토큰이 세션 ID와 우연히 같으면 비노출을 우선해 별칭화한다. 이 모호성을 길이·구두점 휴리스틱으로 다시 덮지 않는다.
+- 예상 밖 도구 예외에는 정적 사유만 노출한다. 서버 예외 객체나 호출자 `guard_id`·`version`을 진단 편의로 다시 echo하지 않는다.
+- 저장소 로컬 MCP 등록의 `PYTHONDONTWRITEBYTECODE=1`을 제거하면 읽기 전용 기동이 저장소에 바이트코드를 만들 수 있다.
+- `.dryforge/`의 완료 주기는 번호 폴더(`001/`, `002/`)에 있고 진행 중 주기만 루트에 둔다. 현재 루트에 진행 중 Dryforge 계약은 없다.
+- `.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업이다. 스테이징·수정·삭제하지 않는다.
+- 현재 브랜치에는 구현 커밋과 이 HANDOFF 후속 커밋 두 개만 있으며 아직 push하지 않았다.

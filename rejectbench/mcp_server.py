@@ -38,15 +38,21 @@ MCP SDK import는 이 모듈 안에만 있다.
 
 ## 출력 경계 (spec §5)
 
-응답으로 나가는 **모든 문자열**(오류 메시지 포함)은 직렬화 직전에 `OutputBoundary`를
-정확히 한 번 지난다. 필드별로 골라 지우지 않는다 — 새 필드가 늘어도 기본이 안전해야
-하기 때문이다. 경계가 하는 일은 둘이다.
+응답으로 나가는 **모든 레코드 유래 문자열 값**(오류 메시지 포함)은 직렬화 직전에
+`OutputBoundary`를 정확히 한 번 지난다. 고정 JSON 키는 공개 응답 스키마이므로 바꾸지
+않는다. 필드별로 골라 지우지 않는다 — 새 필드가 늘어도 기본이 안전해야 하기 때문이다.
+경계가 하는 일은 둘이다.
 
 - 홈 절대 경로 접두사를 `~`로 치환한다. 꼬리는 보존한다 — `target_path`는 판단에
   필요한 값이라 생략이 아니라 치환이어야 한다.
-- 레코드의 세션 식별자 원문을 순번 별칭(`S1`, `S2`, …)으로 치환한다. 별칭은 한
-  응답 안에서만 유효하고, 별칭↔원문 표는 **어디에도 저장하지 않는다** (호출이
-  끝나면 메모리에서 사라진다).
+- 값 전체·완전한 토큰으로 나타난 세션 식별자 원문을 순번 별칭(`S1`, `S2`, …)으로
+  치환한다. 별칭은 한 응답 안에서만 유효하고, 별칭↔원문 표는 **어디에도 저장하지
+  않는다** (호출이 끝나면 메모리에서 사라진다).
+
+스키마가 세션 ID 문법이나 문자열 출처를 제한하지 않아, 단어에 붙은 동일 부분문자열은
+실제 세션 언급인지 일반 텍스트인지 구별할 수 없다. 증거 값을 훼손하지 않도록 그 경우는
+치환하지 않는다. 임의 부분문자열까지 막으려면 적재 시점 문법 또는 typed provenance가
+먼저 필요하다.
 
 비밀 제거는 v1 적재 시점 규칙이 이미 담당한다 — 이 경계는 그 위에 홈 경로와 세션
 식별자를 더 막을 뿐 적재 시점 제거를 대체하지 않는다.
@@ -74,6 +80,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -102,6 +109,7 @@ from rejectbench.store import AppendStore, LoadResult, production_root
 
 SERVER_NAME = "rejectbench-evidence"
 SERVER_VERSION = "7.0.0"
+UNEXPECTED_TOOL_ERROR = "조회 중 오류가 발생했다"
 
 LIST_GUARDS_TOOL = "list_guards"
 GUARD_EVIDENCE_TOOL = "guard_evidence"
@@ -193,16 +201,21 @@ class OutputBoundary:
                 home = ""
         # 루트("/")를 홈으로 잡으면 모든 경로를 뭉갠다 — 그런 경우는 치환하지 않는다.
         self._home = home if home and home not in ("/", "") else ""
-        # 긴 것부터 치환해야 접두사가 겹치는 식별자를 잘라먹지 않는다.
+        # 긴 것부터 매칭해야 접두사가 겹치는 식별자를 잘라먹지 않는다. 별칭 번호는
+        # store 순서가 아니라 실제 응답 문자열의 첫 등장 순서에 발급한다.
         self._session_ids = tuple(
-            sorted({sid for sid in session_ids if sid}, key=len, reverse=True)
+            sorted(dict.fromkeys(sid for sid in session_ids if sid), key=len, reverse=True)
         )
         self._aliases: dict[str, str] = {}
         # 한 번에 훑는 치환기 — 별칭이 다시 치환 대상이 되는 것을 원천 차단한다.
+        # 모든 식별자는 완전한 토큰일 때만 찾는다. 구두점 하나(`-`)도 유효한 저장값이라
+        # 무경계 부분문자열 치환을 허용하면 날짜·경로·가드 ID까지 훼손된다.
+        patterns = [
+            rf"(?<!\w){re.escape(sid)}(?!\w)"
+            for sid in self._session_ids
+        ]
         self._pattern = (
-            re.compile("|".join(re.escape(sid) for sid in self._session_ids))
-            if self._session_ids
-            else None
+            re.compile("|".join(f"(?:{pattern})" for pattern in patterns)) if patterns else None
         )
 
     def _alias_for(self, session_id: str) -> str:
@@ -213,15 +226,15 @@ class OutputBoundary:
         return alias
 
     def text(self, value: str) -> str:
-        # 홈 치환이 별칭 치환보다 먼저다. 세션 식별자가 홈 경로를 품고 있으면 그
-        # 식별자는 별칭화를 빠져나가겠지만, 식별자는 `harness:raw` 꼴로 만들어지고
-        # 경로가 아니다 — 그 전제 위에서 순서를 고정한다.
-        out = value.replace(self._home, "~") if self._home else value
-        if self._pattern is None:
-            return out
+        # 세션 식별자가 홈 경로를 품을 수 있으므로 별칭화가 홈 치환보다 먼저다.
+        if value in self._session_ids:
+            return self._alias_for(value)
+        out = value
         # 원본을 왼쪽부터 한 번만 훑는다 — 별칭 발급 순서가 곧 첫 등장 순서이고,
         # 이미 치환된 자리는 다시 보지 않으므로 같은 문자열이 두 번 바뀌지 않는다.
-        return self._pattern.sub(lambda match: self._alias_for(match.group(0)), out)
+        if self._pattern is not None:
+            out = self._pattern.sub(lambda match: self._alias_for(match.group(0)), out)
+        return out.replace(self._home, "~") if self._home else out
 
     def one_line(self, value: str) -> str:
         """오류 메시지용 — 정화 뒤 한 줄로 접는다 (스택 추적·줄바꿈 금지)."""
@@ -236,12 +249,15 @@ class OutputBoundary:
         입력이므로 되돌려 주는 것이 진단에 쓸모 있다). 공백뿐인 문자열도 `repr`로
         적는다 — 한 줄로 접으면 아무것도 남지 않아 사유가 잘린 것처럼 보인다.
         """
-        raw = value if isinstance(value, str) and value.strip() else repr(value)
+        try:
+            raw = value if isinstance(value, str) and value.strip() else repr(value)
+        except (RecursionError, ValueError):
+            raw = f"<{type(value).__name__}>"
         text = self.one_line(raw)
         return text if len(text) <= MAX_ECHO else text[:MAX_ECHO] + "…"
 
     def sanitize(self, value: Any) -> Any:
-        """응답 구조를 재귀 순회하며 모든 문자열을 정확히 한 번 정화한다.
+        """응답 구조를 재귀 순회하며 레코드 유래 문자열 값을 한 번 정화한다.
 
         모르는 타입은 조용히 통과시키지 않고 막는다 — 새 필드가 늘어도 기본이
         안전해야 하므로, 순회할 수 없는 값은 노출이 아니라 실패로 끝낸다.
@@ -251,10 +267,9 @@ class OutputBoundary:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, dict):
-            return {
-                (self.text(key) if isinstance(key, str) else key): self.sanitize(item)
-                for key, item in value.items()
-            }
+            # 키는 공개 응답 스키마이고 레코드 유래 문자열 값이 아니다. 세션 ID가
+            # 짧거나 키 이름과 같아도 `events` 같은 계약 키를 바꾸면 안 된다.
+            return {key: self.sanitize(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
             return [self.sanitize(item) for item in value]
         if isinstance(value, (set, frozenset)):
@@ -549,7 +564,7 @@ def render_guard_evidence(store: AppendStore, guard_id: Any, version: Any = None
     try:
         view = build_guard_view(snapshot.dataset, guard_id)
     except DecisionError:
-        raise snapshot.fail("등록되지 않은 가드:", echo=guard_id) from None
+        raise snapshot.fail("등록되지 않은 가드") from None
     except OSError as exc:
         # 뷰 구성이 최신 spec의 구현물 대조를 내부에서 하므로, 읽기 실패가 증거
         # 전체를 막는다. 참조를 뗀 사본으로 뷰만 세우고 사유는 아래에서 되붙인다.
@@ -561,12 +576,7 @@ def render_guard_evidence(store: AppendStore, guard_id: Any, version: Any = None
         spec = snapshot.dataset.specs_by_key.get((guard_id, version))
         if spec is None:
             versions = ", ".join(f"v{v}" for v in view.versions)
-            # 호출자가 준 값은 `echo`로 넘긴다 — 사유 문자열에 그대로 박으면
-            # 길이 상한이 걸리지 않아 자릿수 큰 입력이 오류를 통째로 부풀린다.
-            raise snapshot.fail(
-                f"가드에 없는 버전 (등록 버전: {versions}) — 요청한 가드·버전:",
-                echo=f"{guard_id} v{version}",
-            )
+            raise snapshot.fail(f"가드에 없는 버전 (등록 버전: {versions})")
     if spec.version == view.latest_version:
         # 뷰가 이미 최신 spec을 대조했다 — 같은 응답 안에서 파일을 다시 읽지 않는다.
         # (다시 읽으면 그 사이 바뀐 바이트 때문에 한 응답 안 두 상태가 어긋날 수 있다.)
@@ -668,6 +678,16 @@ class _EvidenceServer(MCPServer):
         ]
 
 
+def _run_tool(render: Callable[[], str]) -> str:
+    """SDK 바깥으로 예상 밖 예외와 그 traceback이 새지 않게 막는다."""
+    try:
+        return render()
+    except ToolError:
+        raise
+    except Exception:
+        raise ToolError(UNEXPECTED_TOOL_ERROR) from None
+
+
 def build_server(store: AppendStore, *, now: datetime | None = None) -> MCPServer:
     """세 도구만 노출하는 읽기 전용 서버. 쓰기 도구는 하나도 없다.
 
@@ -691,7 +711,7 @@ def build_server(store: AppendStore, *, now: datetime | None = None) -> MCPServe
         structured_output=False,
     )
     def list_guards() -> str:
-        return render_list_guards(store)
+        return _run_tool(lambda: render_list_guards(store))
 
     @server.tool(
         name=GUARD_EVIDENCE_TOOL,
@@ -707,7 +727,7 @@ def build_server(store: AppendStore, *, now: datetime | None = None) -> MCPServe
     ) -> str:
         # 타입 선언이 느슨한 것은 의도다 — SDK가 먼저 거부하면 그 오류 텍스트가
         # 출력 경계를 지나지 않는다. 검증은 도구 본문(render_guard_evidence)에서.
-        return render_guard_evidence(store, guard_id, version)
+        return _run_tool(lambda: render_guard_evidence(store, guard_id, version))
 
     @server.tool(
         name=GET_REPORT_TOOL,
@@ -715,7 +735,7 @@ def build_server(store: AppendStore, *, now: datetime | None = None) -> MCPServe
         structured_output=False,
     )
     def get_report() -> str:
-        return render_report_text(store, now=now)
+        return _run_tool(lambda: render_report_text(store, now=now))
 
     return server
 
