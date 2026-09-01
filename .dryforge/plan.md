@@ -25,12 +25,12 @@
 
 의존: 없음(기준선 측정 뒤). spec §2.
 
-- [ ] 편집 직전 전역 설정 스냅샷 — **사용자 소유 `.bak-*`와 다른 이름**으로
-- [ ] `~/.claude/settings.json` PreToolUse(matcher `Bash`) 명령에 인라인 `PYTHONPATH=/Users/ian/workspace/reject-bench` 접두 추가 — 임시 파일에 쓰고 JSON 파싱 성공 확인 후 교체
-- [ ] 저장소 밖 cwd에서 `import rejectbench.wrapper` 성공 확인 (검증 확인됨: 접두 없으면 `ModuleNotFoundError`, 있으면 `IMPORT OK`)
-- [ ] 다른 훅 항목 불변 확인 — 이 시점에는 collect.py 항목 4건도 그대로 남아 있어야 한다(E4가 지운다)
-- [ ] `docs/배선-목록.md`의 새 배선 표를 수정된 명령으로 갱신하고 읽기 조회 캡처를 함께 적는다
-- [ ] 검증 실패 시 스냅샷에서 복원
+- [x] 편집 직전 전역 설정 스냅샷 — `~/.claude/settings.json.rejectbench-pre-e0-20260901` (사용자 소유 `.bak-*`와 다른 이름). 12228자/12326바이트 원본과 일치 확인
+- [x] `~/.claude/settings.json` PreToolUse(matcher `Bash`) 명령에 인라인 `PYTHONPATH=/Users/ian/workspace/reject-bench` 접두 추가 — 대상 문자열 1회 확인 → 정밀 교체 → JSON 파싱·항목 수·최상위 키·길이 변화량(+45자) 검증 → 임시 파일 원자적 교체
+- [x] 저장소 밖 cwd에서 `import rejectbench.wrapper` 성공 확인 — 수정 전 `ModuleNotFoundError`, 수정 후 `IMPORT OK`
+- [x] 다른 훅 항목 불변 확인 — 훅 항목 22건·최상위 키 15개 그대로, collect.py 항목 4건 잔존(E4가 지운다)
+- [x] `docs/배선-목록.md`의 새 배선 표를 수정된 명령으로 갱신하고 읽기 조회 캡처를 함께 적었다 ("E0 배선 수정" 절)
+- [x] 검증 실패 시 스냅샷에서 복원 — **발동하지 않았다** (검증 전량 통과). 스냅샷은 E4까지 남겨 둔다
 
 작업 대상: [파일] `docs/배선-목록.md` · **[외부·비버전관리 상태]** `~/.claude/settings.json`(PreToolUse `Bash` 명령 1건).
 검증 게이트: 저장소 밖 import 성공 캡처 + 유효 JSON + 항목 불변 + `uv run pytest` 전체 통과.
