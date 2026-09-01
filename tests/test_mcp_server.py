@@ -1,10 +1,10 @@
 """읽기 전용 MCP 증거 조회 서버 (T7-1, spec §3~§5, §8).
 
 완료 조건 고정:
-- 비노출 양성 대조: 홈 경로와 세션 식별자를 **실제로 심은** 픽스처로 세 도구와
-  오류 경로의 전체 응답을 훑어, 원문이 0회이고 치환 결과가 실제로 나타나는지
-  확인한다. 깨끗한 픽스처 스캔은 통과로 치지 않는다.
-- 별칭 규칙: 한 응답 안에서 같은 세션=같은 별칭, 다른 세션=다른 별칭, 원문 0회.
+- 비노출 양성 대조: 홈 경로와 세션 식별자를 값 전체·완전한 토큰으로 **실제로 심은**
+  픽스처로 세 도구와 오류 경로의 전체 응답을 훑어, 원문이 0회이고 치환 결과가 실제로
+  나타나는지 확인한다. 깨끗한 픽스처 스캔은 통과로 치지 않는다.
+- 별칭 규칙: 한 응답 안에서 같은 세션=같은 별칭, 다른 세션=다른 별칭, 심은 토큰 원문 0회.
 - 읽기 전용: 세 도구 호출 전후로 store 디렉터리의 파일 목록·내용이 같고,
   store가 없을 때는 호출 뒤에도 디렉터리가 생기지 않는다.
 - 도구 계약: guard_evidence 필수 내용, 미등록 가드·없는 버전 오류 경로,
@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -338,7 +339,7 @@ def test_positive_control_no_home_path_or_session_id_in_any_response(tmp_path):
     error = call_tool(
         server,
         GUARD_EVIDENCE_TOOL,
-        {"guard_id": f"{HOME}/없는가드-{RAW_SESSION_A}"},
+        {"guard_id": [f"{HOME}/없는가드-{RAW_SESSION_A}"]},
     )
     assert error.is_error is True
     responses["error"] = whole_result(error)
@@ -374,13 +375,46 @@ def test_positive_control_covers_enforcement_reason_and_meaning_fields(tmp_path)
 def test_error_text_is_single_line_without_paths_or_traceback(tmp_path):
     store = simple_store(tmp_path / "store")
     server = build_server(store, now=NOW)
-    result = call_tool(server, GUARD_EVIDENCE_TOOL, {"guard_id": "no-such-guard"})
+    caller_path = "/private/tmp/client-secret/guard"
+    result = call_tool(server, GUARD_EVIDENCE_TOOL, {"guard_id": caller_path})
     text = result_text(result)
     assert result.is_error is True
     assert "\n" not in text
     assert "Traceback" not in text
     assert str(tmp_path) not in text
-    assert "no-such-guard" in text
+    assert caller_path not in text
+    assert "등록되지 않은 가드" in text
+
+
+@pytest.mark.parametrize(
+    "tool_name,render_name,arguments",
+    [
+        (LIST_GUARDS_TOOL, "render_list_guards", {}),
+        (GUARD_EVIDENCE_TOOL, "render_guard_evidence", {"guard_id": "guard-a"}),
+        (GET_REPORT_TOOL, "render_report_text", {}),
+    ],
+)
+def test_unexpected_tool_failures_are_sanitized_without_stderr_traceback(
+    tmp_path, monkeypatch, capsys, caplog, tool_name, render_name, arguments
+):
+    leaked_path = f"{HOME}/private-store/records.jsonl"
+
+    def fail(*args, **kwargs):
+        raise OSError(leaked_path)
+
+    monkeypatch.setattr(mcp_server, render_name, fail)
+    result = call_tool(build_server(simple_store(tmp_path / "store"), now=NOW), tool_name, arguments)
+    stderr = capsys.readouterr().err
+    text = result_text(result)
+
+    assert result.is_error is True
+    assert "조회 중 오류" in text
+    assert leaked_path not in text
+    assert leaked_path not in stderr
+    assert leaked_path not in caplog.text
+    assert "Traceback" not in text
+    assert "Traceback" not in stderr
+    assert "Traceback" not in caplog.text
 
 
 # --- §5 인자 검증도 같은 경계를 지난다 -----------------------------------------
@@ -453,7 +487,7 @@ def test_error_echo_is_truncated_only_after_sanitization(tmp_path):
                 call_tool(
                     server,
                     GUARD_EVIDENCE_TOOL,
-                    {"guard_id": "planted-guard", "version": "P" * pad + needle},
+                    {"guard_id": "planted-guard", "version": "P" * pad + " " + needle},
                 )
             )
             assert "\n" not in text, (needle, pad)
@@ -469,7 +503,7 @@ def test_error_echo_is_truncated_only_after_sanitization(tmp_path):
         call_tool(
             server,
             GUARD_EVIDENCE_TOOL,
-            {"guard_id": "planted-guard", "version": "P" * 5000 + RAW_SESSION_A},
+            {"guard_id": "planted-guard", "version": "P" * 5000 + " " + RAW_SESSION_A},
         )
     )
     assert len(huge) <= mcp_server.MAX_ECHO + 60
@@ -641,6 +675,88 @@ def test_session_alias_rules_within_one_response(tmp_path):
     blob = json.dumps(payload, ensure_ascii=False)
     assert RAW_SESSION_A not in blob
     assert RAW_SESSION_B not in blob
+
+
+def test_home_bearing_and_short_session_ids_keep_aliases_and_response_schema(tmp_path):
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    spec = make_spec(guard_id="guard-a", version=1, project="evidence", created_at=ts(0))
+    store.append(spec)
+    store.append(
+        make_event(
+            spec,
+            event_id="ev-home",
+            session_id=f"claude:{HOME}/session-123",
+            occurred_at=ts(10),
+        )
+    )
+    store.append(make_event(spec, event_id="ev-short", session_id="e", occurred_at=ts(20)))
+
+    payload = json.loads(
+        result_text(
+            call_tool(
+                build_server(store, now=NOW),
+                GUARD_EVIDENCE_TOOL,
+                {"guard_id": "guard-a"},
+            )
+        )
+    )
+
+    assert payload["project"] == "evidence"
+    assert [row["session"] for row in payload["events"]] == ["S1", "S2"]
+    assert [row["event_id"] for row in payload["events"]] == ["ev-home", "ev-short"]
+    assert f"claude:{HOME}/session-123" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_punctuation_session_id_does_not_rewrite_other_response_values(tmp_path):
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    spec = make_spec(guard_id="guard-a", version=1, project="reject-bench", created_at=ts(0))
+    store.append(spec)
+    store.append(make_event(spec, event_id="ev-one", session_id="-", occurred_at=ts(30)))
+
+    payload = json.loads(
+        result_text(
+            call_tool(
+                build_server(store, now=NOW),
+                GUARD_EVIDENCE_TOOL,
+                {"guard_id": "guard-a"},
+            )
+        )
+    )
+
+    assert payload["guard_id"] == "guard-a"
+    assert payload["project"] == "reject-bench"
+    assert payload["events"][0]["event_id"] == "ev-one"
+    assert payload["events"][0]["occurred_at"] == ts(30).isoformat()
+    assert payload["events"][0]["session"] == "S1"
+
+
+def test_free_text_aliasing_requires_a_complete_session_token(tmp_path):
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    session_id = "claude:sess-1"
+    spec = make_spec(guard_id="guard-a", version=1, created_at=ts(0))
+    store.append(spec)
+    store.append(
+        make_event(
+            spec,
+            session_id=session_id,
+            reason=f"token {session_id}; glued=prefix{session_id}suffix",
+            occurred_at=ts(30),
+        )
+    )
+
+    result = call_tool(
+        build_server(store, now=NOW),
+        GUARD_EVIDENCE_TOOL,
+        {"guard_id": "guard-a"},
+    )
+    payload = json.loads(result_text(result))
+
+    assert result.is_error in (False, None)
+    assert payload["events"][0]["session"] == "S1"
+    assert payload["events"][0]["reason"] == f"token S1; glued=prefix{session_id}suffix"
 
 
 def test_alias_map_is_per_call_and_not_persisted(tmp_path):
@@ -937,7 +1053,8 @@ def test_guard_evidence_unregistered_guard_is_tool_error(tmp_path):
         render_guard_evidence(store, "ghost-guard")
     result = call_tool(build_server(store, now=NOW), GUARD_EVIDENCE_TOOL, {"guard_id": "ghost-guard"})
     assert result.is_error is True
-    assert "ghost-guard" in result_text(result)
+    assert "등록되지 않은 가드" in result_text(result)
+    assert "ghost-guard" not in result_text(result)
 
 
 def test_guard_evidence_unknown_version_is_tool_error(tmp_path):
@@ -948,7 +1065,9 @@ def test_guard_evidence_unknown_version_is_tool_error(tmp_path):
     assert result.is_error is True
     text = result_text(result)
     assert "\n" not in text
-    assert "9" in text
+    assert "없는 버전" in text
+    assert "v1" in text
+    assert "9" not in text
 
 
 #: 문자열 version이 정수로 받아들여지는 형태 — 평범한 십진수 하나(앞뒤 공백 허용)뿐.
@@ -1014,8 +1133,27 @@ def test_overlong_digit_version_stays_inside_the_tool_error(tmp_path):
         assert ("없는 버전" in text) or ("정수여야 한다" in text), digits
 
 
-def test_absent_version_error_is_bounded_like_every_other_echo(tmp_path):
-    """'없는 버전' 사유도 호출자 입력을 담는다 — 상한 없이 부풀면 안 된다."""
+def test_overlong_integer_version_stays_inside_the_tool_error(tmp_path, capsys, caplog):
+    store = planted_store(tmp_path / "store")
+    result = call_tool(
+        build_server(store, now=NOW),
+        GUARD_EVIDENCE_TOOL,
+        {"guard_id": "planted-guard", "version": 10**5000},
+    )
+    stderr = capsys.readouterr().err
+    text = result_text(result)
+
+    assert result.is_error is True
+    assert "없는 버전" in text
+    assert "Traceback" not in text
+    assert "Traceback" not in stderr
+    assert "Traceback" not in caplog.text
+    assert HOME not in stderr
+    assert HOME not in caplog.text
+
+
+def test_absent_version_error_is_bounded_without_echoing_the_input(tmp_path):
+    """'없는 버전'은 등록 버전만 보이고 호출자 입력은 되비추지 않는다."""
     store = planted_store(tmp_path / "store")
     result = call_tool(
         build_server(store, now=NOW),
@@ -1027,6 +1165,7 @@ def test_absent_version_error_is_bounded_like_every_other_echo(tmp_path):
     assert "없는 버전" in text
     assert "\n" not in text
     assert len(text) <= mcp_server.MAX_ECHO + 120, len(text)
+    assert "9" * 20 not in text
 
 
 #: 기본 `strip()`이 걷어내는 유니코드 공백 — `[0-9]`로 좁힌 뜻과 어긋나므로 거부한다.
@@ -1238,3 +1377,31 @@ def test_main_defaults_to_the_production_root(tmp_path, monkeypatch):
     # 운영 store를 읽지도 만들지도 않는다 — 구성된 경로만 대조한다.
     assert captured["root"] == production_root()
     assert captured["server"].transport == "stdio"
+
+
+def test_repository_registration_disables_python_bytecode_writes(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    registration = json.loads((repo_root / ".mcp.json").read_text(encoding="utf-8"))
+    configured_env = registration["mcpServers"]["rejectbench-evidence"]["env"]
+    assert configured_env["PYTHONDONTWRITEBYTECODE"] == "1"
+
+    package_copy = tmp_path / "rejectbench"
+    shutil.copytree(
+        repo_root / "rejectbench",
+        package_copy,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", "import rejectbench.mcp_server"],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            **configured_env,
+            "PYTHONPATH": str(tmp_path),
+        },
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not list(tmp_path.rglob("*.pyc"))
