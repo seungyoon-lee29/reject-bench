@@ -161,3 +161,121 @@ class TestBillingGate:
         verdicts = dataset.verdicts_for("ev-1")
         assert len(verdicts) == 2
         assert "[재판정: 모델 교체]" in verdicts[1].reason
+
+
+class SettingsRecordingTransport:
+    """`complete`에 실제로 도착한 settings를 그대로 붙잡는다."""
+
+    seen: list = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def complete(self, *, model_id, messages, settings):
+        SettingsRecordingTransport.seen.append(dict(settings))
+        return json.dumps({"verdict": "correct_block", "reason": "근거"}, ensure_ascii=False)
+
+
+class TestModelSettingsInjection:
+    """`--model-settings` — 모델이 기본 설정을 거부할 때의 조정 경로.
+
+    `rejectbench/AGENTS.md`가 "판정 기본 설정 `{"temperature": 0}`은 모델이
+    거부할 수 있다 — settings 주입으로 조정하고 `model_settings_hash`가 바뀐
+    재판정 규율을 따른다"고 처방한 그 주입구다. 실제로 gpt-5 계열이
+    `temperature: 0`을 거부해(HTTP 400) 첫 과금 호출이 전량 실패했고,
+    라이브러리 계층은 이미 `model_settings`를 받는데 CLI에만 구멍이 있었다.
+
+    의미는 **전체 교체**다 — 병합이 아니다. `model_settings_hash`가 실제로
+    쓰인 설정을 가리켜야 하므로, 명령줄에 적은 것이 곧 해시 대상이 된다.
+    """
+
+    def test_default_settings_unchanged_without_flag(self, store_dir, capsys, monkeypatch):
+        seed(store_dir, events=1)
+        monkeypatch.setattr("rejectbench.judge.OpenAITransport", ForbiddenTransport)
+        assert main(["judge", "--store", str(store_dir)]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["model_settings"] == {"temperature": 0}
+
+    def test_empty_object_drops_temperature_entirely(self, store_dir, capsys, monkeypatch):
+        """gpt-5 계열이 요구하는 형태 — temperature 키 자체가 없어야 한다."""
+        seed(store_dir, events=1)
+        monkeypatch.setattr("rejectbench.judge.OpenAITransport", ForbiddenTransport)
+        assert main(["judge", "--store", str(store_dir), "--model-settings", "{}"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["model_settings"] == {}
+
+    def test_injected_settings_reach_the_transport(self, store_dir, capsys, monkeypatch):
+        seed(store_dir, events=1)
+        SettingsRecordingTransport.seen = []
+        monkeypatch.setattr(
+            "rejectbench.judge.OpenAITransport", SettingsRecordingTransport
+        )
+        assert main(
+            [
+                "judge", "--store", str(store_dir), "--approve-billing",
+                "--skip-calibration", "--model-settings", "{}",
+            ]
+        ) == 0
+        assert SettingsRecordingTransport.seen == [{}]
+
+    def test_replacement_not_merge(self, store_dir, capsys, monkeypatch):
+        """전체 교체 — 기본값의 temperature가 남아 따라오면 안 된다."""
+        seed(store_dir, events=1)
+        SettingsRecordingTransport.seen = []
+        monkeypatch.setattr(
+            "rejectbench.judge.OpenAITransport", SettingsRecordingTransport
+        )
+        assert main(
+            [
+                "judge", "--store", str(store_dir), "--approve-billing",
+                "--skip-calibration", "--model-settings", '{"top_p": 1}',
+            ]
+        ) == 0
+        assert SettingsRecordingTransport.seen == [{"top_p": 1}]
+
+    def test_settings_change_moves_the_hash(self, store_dir, capsys, monkeypatch):
+        """재판정 규율의 근거 — 설정이 바뀌면 `model_settings_hash`가 바뀐다."""
+        from rejectbench.judge import load_calibrations  # noqa: PLC0415
+
+        seed(store_dir, events=1)
+        SettingsRecordingTransport.seen = []
+        monkeypatch.setattr(
+            "rejectbench.judge.OpenAITransport", SettingsRecordingTransport
+        )
+        assert main(
+            ["judge", "--store", str(store_dir), "--approve-billing"]
+        ) == 0
+        capsys.readouterr()
+        assert main(
+            [
+                "judge", "--store", str(store_dir), "--approve-billing",
+                "--model-settings", "{}", "--rejudge", "ev-1",
+                "--rejudge-reason", "설정 조정",
+            ]
+        ) == 0
+        calibrations, corrupt = load_calibrations(store_dir)
+        assert corrupt == 0
+        hashes = {c.model_settings_hash for c in calibrations}
+        assert len(hashes) == 2, "설정이 달라졌는데 교정 해시가 같다"
+
+    def test_invalid_json_is_error_before_any_billing(self, store_dir, capsys, monkeypatch):
+        seed(store_dir, events=1)
+        monkeypatch.setattr("rejectbench.judge.OpenAITransport", ForbiddenTransport)
+        assert main(
+            [
+                "judge", "--store", str(store_dir), "--approve-billing",
+                "--model-settings", "{not json",
+            ]
+        ) == 1
+        assert "--model-settings" in capsys.readouterr().err
+
+    def test_non_object_json_is_error(self, store_dir, capsys, monkeypatch):
+        seed(store_dir, events=1)
+        monkeypatch.setattr("rejectbench.judge.OpenAITransport", ForbiddenTransport)
+        assert main(
+            [
+                "judge", "--store", str(store_dir), "--approve-billing",
+                "--model-settings", "[1, 2]",
+            ]
+        ) == 1
+        assert "--model-settings" in capsys.readouterr().err

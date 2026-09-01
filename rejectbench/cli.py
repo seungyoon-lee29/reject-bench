@@ -195,12 +195,35 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_model_settings(raw: str | None) -> dict | None:
+    """`--model-settings` JSON을 판정 설정 딕셔너리로 읽는다.
+
+    전체 교체 의미다 — `model_settings_hash`가 실제로 쓰인 설정을 가리켜야
+    하므로 명령줄에 적은 것이 곧 해시 대상이 된다. `None`이면 기본값을 쓴다.
+    """
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise JudgeError(f"--model-settings: JSON으로 파싱할 수 없다 — {exc.msg}") from None
+    if not isinstance(parsed, dict):
+        raise JudgeError("--model-settings: JSON 객체여야 한다 (전체 교체 — 병합이 아니다)")
+    return parsed
+
+
 def _cmd_judge(args: argparse.Namespace) -> int:
     store = AppendStore(args.store)
     rejudge = tuple(args.rejudge or ())
     calibrate = not args.skip_calibration
+    # 과금 경로·전송 계층 생성보다 먼저 검증한다 — 잘못된 설정으로 호출하지 않는다.
+    model_settings = _parse_model_settings(args.model_settings)
     summary = judge_module.billing_plan(
-        store, model_id=args.model, calibrate=calibrate, rejudge=rejudge
+        store,
+        model_id=args.model,
+        model_settings=model_settings,
+        calibrate=calibrate,
+        rejudge=rejudge,
     )
     approved = bool(args.approve_billing) or os.environ.get(BILLING_ENV) == "1"
     if not approved:
@@ -222,6 +245,7 @@ def _cmd_judge(args: argparse.Namespace) -> int:
         store,
         transport=transport,
         model_id=args.model,
+        model_settings=model_settings,
         calibrate=calibrate,
         rejudge=rejudge,
         rejudge_reason=args.rejudge_reason,
@@ -491,6 +515,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=judge_module.DEFAULT_MODEL_ID,
         help=f"판정 모델 (기본: {judge_module.DEFAULT_MODEL_ID})",
+    )
+    judge.add_argument(
+        "--model-settings",
+        metavar="JSON",
+        help=(
+            "판정 모델 설정을 JSON 객체로 **전체 교체**한다 (병합 아님). "
+            f"기본값 {judge_module.DEFAULT_MODEL_SETTINGS}를 모델이 거부할 때 쓴다 — "
+            "예: '{}' (temperature 키 자체를 뺀다). "
+            "바뀐 설정은 model_settings_hash에 반영되어 재판정 규율을 따른다"
+        ),
     )
     judge.add_argument(
         "--approve-billing",
