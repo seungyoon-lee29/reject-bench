@@ -53,7 +53,10 @@ from rejectbench.rubric import (
 from rejectbench.scrub import scrub_text
 from rejectbench.store import AppendStore
 
-DEFAULT_MODEL_ID = "gpt-5-mini"
+# gpt-5 계열은 `temperature` 고정을 거부한다(기본값 1만 허용) — 결정성을 지키려면
+# temperature를 받는 모델을 기본으로 둔다. 최신 모델이 필요하면 `--model`로 바꾸되
+# `--model-settings '{}'`로 temperature를 함께 빼야 한다(그 경우 판정은 비결정적).
+DEFAULT_MODEL_ID = "gpt-4.1-mini"
 # temperature 0 상당의 결정적 설정 — 해시(`model_settings_hash`)로 고정된다.
 DEFAULT_MODEL_SETTINGS: dict = {"temperature": 0}
 

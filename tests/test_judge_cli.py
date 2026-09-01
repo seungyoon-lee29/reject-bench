@@ -13,7 +13,7 @@ import pytest
 
 from rejectbench import AppendStore, Dataset, Origin, OriginEvidence, Verdict
 from rejectbench.cli import main
-from rejectbench.judge import BILLING_ENV
+from rejectbench.judge import BILLING_ENV, DEFAULT_MODEL_ID
 from tests.factories import make_event, make_spec
 
 
@@ -65,7 +65,7 @@ class TestBillingGate:
         assert main(["judge", "--store", str(store_dir)]) == 0
         out = json.loads(capsys.readouterr().out)
         assert out["approved"] is False
-        assert out["model_id"] == "gpt-5-mini"
+        assert out["model_id"] == DEFAULT_MODEL_ID
         assert out["pending_event_ids"] == ["ev-1", "ev-2"]
         assert out["planned_llm_calls"] >= 2
 
