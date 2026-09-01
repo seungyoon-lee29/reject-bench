@@ -1,4 +1,4 @@
-# 핸드오프 — 003 E0 대기 (2026-09-01)
+# 핸드오프 — 003 E1 대기 (2026-09-01)
 
 ## 지금 하던 것
 
@@ -15,15 +15,17 @@
 2. **판정 설정 → CLI에 주입구 신설.** `--model-settings JSON`(전체 교체). `AGENTS.md:42`가 처방한 경로다.
 3. **MCP 전역 등록 → 다음 주기로 연기.** E0 전에는 타 저장소 사건이 0건이라 지금 줄 게 없다.
 
+**E0 완료 (2026-09-01)** — 전역 래퍼 배선에 인라인 `PYTHONPATH` 접두를 넣었다. 저장소 밖 cwd에서 `ModuleNotFoundError` → `IMPORT OK`. 훅 항목 22건·최상위 키 15개 불변, collect.py 4건 잔존. 스냅샷 `~/.claude/settings.json.rejectbench-pre-e0-20260901`은 E4까지 남긴다. 읽기 조회 캡처는 `docs/배선-목록.md`의 "E0 배선 수정" 절에 있다.
+
 **첫 과금 판정 완료** — 1차 시도는 전량 실패했다. `gpt-5` 계열이 `temperature: 0`을 거부(HTTP 400)해 교정 0/8 → `verdict_failure` LossRecord 2건. `--model-settings '{}'`로 재시도해 교정 8/8 통과, 두 사건 모두 `correct_block`. 두 교정 레코드는 `model_settings_hash`로 구분돼 나란히 남아 있다.
 
 **현재 지표** — 정책 불일치율 0/2, **사용자 불필요 차단율 2/2(100%)**, **LLM-사용자 불일치율 2/2** (전부 "정책상 옳은 차단 + 사용자 불필요"). 대표 지표(증거 기반 결정 완료율)는 여전히 **미검증**이다 — 아래 미결 1.
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**E0의 첫 체크박스 — `~/.claude/settings.json` 스냅샷을 뜬다** (사용자 소유 `.bak-*`와 **다른 이름**으로). 그 다음 PreToolUse(matcher `Bash`) 명령에 인라인 `PYTHONPATH=/Users/ian/workspace/reject-bench` 접두를 넣는다 — 임시 파일에 쓰고 JSON 파싱 성공을 확인한 뒤 교체, 검증 실패 시 복원.
+**E1의 첫 체크박스 — 실패 테스트를 먼저 쓴다.** `tests/test_recorder.py`에 절단 픽스처 8종을 추가한다(홈 경로 가로지름 / 복합 세션 ID 가로지름 / 병리 입력 + 원본 세션 ID / 공백 품은 민감값 / 공백이 앞쪽 한 곳뿐인 긴 입력 = 하한 폴백 / 공백 없는 병리 일반 / 정확히 4000자 / 짧은 입력 무변경). red 확인 후 `rejectbench/recorder.py` 구현.
 
-그 뒤 E1 → … → E7. 각 태스크의 체크박스는 `.dryforge/plan.md`에 있다.
+그 뒤 E2 → … → E7. 각 태스크의 체크박스는 `.dryforge/plan.md`에 있다.
 
 ## 미결 결정
 
