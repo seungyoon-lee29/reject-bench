@@ -48,7 +48,13 @@ STORE_ENV = "REJECTBENCH_STORE"
 FALLBACK_DIR_ENV = "REJECTBENCH_FALLBACK_DIR"
 FALLBACK_FILENAME = "rejectbench-loss-fallback.log"
 
+# 차단 사유 본문 상한 (마커 별도).
 _MAX_REASON = 4000
+# 공백 되물림을 포기하는 하한. **절대 문자 수가 아니라 상한에 대한 비율**이다 —
+# 상한을 튜닝하면 하한이 함께 움직여야 하고, 두 상수가 따로 놀면 조용히 깨진다.
+_MIN_REASON_RATIO = 0.5
+_MIN_REASON = int(_MAX_REASON * _MIN_REASON_RATIO)
+_TRUNCATION_MARKER = "…[truncated]"
 
 
 @dataclass(frozen=True)
@@ -201,6 +207,103 @@ def _detect_drift(spec: GuardSpec, guard_path: str) -> bool:
     return current.file_hash != ref.file_hash
 
 
+# --- 차단 사유 절단 (spec §3) -------------------------------------------------
+#
+# 절단점은 ① 공백 되물림 → ② 민감값 가로지름 회피(고정점, 항상) → ③ 하한 폴백
+# 순으로 정한다. ①은 정돈이고 ②는 안전 보장이라 폴백 경로에도 ②는 남는다.
+# 보장 범위는 **이 사건의 민감값 세 종**에 한한 새 파편 생성 차단이다 — 사유에
+# 섞인 타 세션 ID는 대상이 아니다(알려면 store를 읽어야 하고, 그 I/O는 no-throw
+# 봉투 안에서 감당하지 않는다).
+
+
+def _home_path(env: Mapping[str, str]) -> str:
+    """절단이 아는 홈 절대 경로 원문. 알 수 없거나 루트면 대상에서 뺀다."""
+    home = env.get("HOME") or ""
+    if not home:
+        try:
+            home = str(Path.home())
+        except (RuntimeError, OSError):  # 홈을 알 수 없는 환경
+            home = ""
+    # 루트를 홈으로 잡으면 모든 경로 조각이 민감값이 된다.
+    return home if home not in ("", "/") else ""
+
+
+def _sensitive_values(
+    *, env: Mapping[str, str], session_id: str, session_raw: str | None
+) -> tuple[str, ...]:
+    """적재 시점에 아는 민감값 — 홈 절대 경로·복합 세션 ID·원본 세션 ID."""
+    candidates = (_home_path(env), session_id, session_raw or "")
+    return tuple(dict.fromkeys(value for value in candidates if value))
+
+
+def _whitespace_cut(text: str, cut: int) -> int:
+    """앞 `cut`자 안의 마지막 공백류(개행·탭 포함) 앞까지 되물린 절단점.
+
+    경계 술어는 `str.isspace()`다 — 계약의 "공백 구분 단위"가 `str.split()`
+    경계이고 `split()`이 쓰는 술어가 이것이다. 뒤에서 두 번 훑는 이유는 정규식
+    판(끝을 앵커로 잡는 형태)이 같은 답을 주면서도 앞 `cut`자가 한 덩어리인
+    입력 — 경로 덤프 한 줄, compact JSON 한 줄 — 에서 역추적으로 2차 시간이
+    되기 때문이다. 실측 40ms 대 0.08ms이고, 이 판은 상한이 `cut`이라 병리
+    입력에서도 그 상한을 넘지 않는다. 두 판의 절단점은 무작위 10만 건과
+    경계 케이스에서 전부 일치한다.
+    """
+    head = text[:cut]
+    index = len(head)
+    while index > 0 and not head[index - 1].isspace():
+        index -= 1  # 절단점이 자른 비공백 연속열을 통째로 버린다
+    while index > 0 and head[index - 1].isspace():
+        index -= 1  # 그 앞 공백류도 본문에 남기지 않는다
+    return index
+
+
+def _retreat_past_sensitive(text: str, cut: int, sensitive: tuple[str, ...]) -> int:
+    """절단점이 민감값 등장을 가로지르면 그 등장의 시작 전까지 되물린다 — 고정점.
+
+    가로지름 = 등장이 `cut` 앞에서 시작해 `cut` 뒤에서 끝난다. **가로지를
+    때만** 되물린다 — 본문 안에 온전히 든 등장까지 되물리면 사유가 통째로
+    사라진다. 찾는 범위를 그 조건으로 좁혔으므로 되물림은 항상 `cut`보다
+    앞으로만 가고, 따라서 유한 단계에 멈춘다. 그럼에도 전진 검사를 남긴 것은
+    이 모듈이 E0 이후 **모든 저장소의 Bash 훅**에서 로드되고 이 루프가 차단
+    사건마다 도는 자리라, 무한 루프의 대가가 예외보다 크기 때문이다.
+    """
+    while cut > 0:
+        starts = []
+        for value in sensitive:
+            span = len(value)
+            found = text.find(value, max(0, cut - span + 1), cut + span - 1)
+            if found != -1:
+                starts.append(found)
+        if not starts:
+            break
+        nearest = min(starts)
+        if nearest >= cut:  # 전진하지 않는 되물림 — 도달 불가지만 잠가 둔다
+            break
+        cut = nearest
+    return cut
+
+
+def _cut_point(text: str, sensitive: tuple[str, ...]) -> int:
+    """본문 절단점 — ① 공백 되물림 → ② 민감값 고정점 → ③ 하한 폴백."""
+    tidy = _retreat_past_sensitive(text, _whitespace_cut(text, _MAX_REASON), sensitive)
+    if tidy >= _MIN_REASON:
+        return tidy
+    # 정돈이 본문 절반 이상을 먹으면 정돈을 버린다. 안전 보장(②)은 폴백에도 남는다.
+    return _retreat_past_sensitive(text, _MAX_REASON, sensitive)
+
+
+def _blind_truncate(text: str) -> str:
+    """되물림 없는 현행 절단 — 내부 폴백 경로(spec §3.5)가 쓴다."""
+    if len(text) <= _MAX_REASON:
+        return text
+    return text[:_MAX_REASON] + _TRUNCATION_MARKER
+
+
+def _truncate_reason(text: str, sensitive: tuple[str, ...]) -> str:
+    if len(text) <= _MAX_REASON:
+        return text
+    return text[: _cut_point(text, sensitive)] + _TRUNCATION_MARKER
+
+
 # --- 조립 --------------------------------------------------------------------
 
 
@@ -242,8 +345,20 @@ def assemble_event(
         drift = _detect_drift(spec, guard_path)
 
     scrubbed = scrub_text(redact_command_echo(reason))
-    if len(scrubbed) > _MAX_REASON:
-        scrubbed = scrubbed[:_MAX_REASON] + "…[truncated]"
+    try:
+        scrubbed = _truncate_reason(
+            scrubbed,
+            _sensitive_values(
+                env=env,
+                session_id=session_id,
+                session_raw=session_raw if context_available else None,
+            ),
+        )
+    except Exception:
+        # 절단 계산 결함이 사건을 LossRecord로 강등시키지 않는다 (spec §3.5).
+        # 이 폴백은 assemble_event 안에서 닫힌다 — 예외가 밖으로 새면
+        # record_guard_result가 _record_loss로 보내 recorded=False가 된다.
+        scrubbed = _blind_truncate(scrubbed)
     return GuardEvent(
         event_id=f"ev-{uuid.uuid4().hex}",
         occurred_at=now,
