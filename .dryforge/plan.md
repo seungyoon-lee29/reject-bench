@@ -91,13 +91,13 @@
 
 의존: 없음(E0·E3과는 순서 제약 — 전역 설정 파일은 순차·직접 수정). spec §6.
 
-- [ ] **스냅샷 먼저**: 편집 직전 전역 설정 스냅샷(사용자 `.bak-*`와 다른 이름) → 임시 파일에 쓰고 JSON 파싱 성공 확인 후 교체 → 아래 검증 3종 중 하나라도 실패하면 복원
-- [ ] `~/.claude/settings.json`에서 collect.py 호출 4건만 제거(PostToolUse `Edit|Write|MultiEdit|NotebookEdit` / PostToolUseFailure / PermissionRequest / PermissionDenied). 같은 이벤트의 다른 훅·v7 래퍼 배선(PreToolUse `Bash`, E0이 고친 상태) 불변
-- [ ] `hooks/collect.py` 삭제 (`continuity.py`·`codex_handoff_gate.py`와 테스트, `data/events.jsonl`은 보존)
-- [ ] `docs/배선-목록.md`에서 **collect.py를 언급하는 모든 줄** 갱신 — v0 절 밖의 `:27`("퇴역 여부는 … HANDOFF 미결 3") 포함. 죽은 번호 참조를 **항목명**으로 교체
-- [ ] `README.md` collect.py 문단 갱신
-- [ ] 읽기 조회로 확인: 전역 설정 유효 JSON + collect.py 항목 0건 + 래퍼 배선 잔존
-- [ ] **캡처 3종을 `docs/배선-목록.md` 퇴역 완료 기록에 그대로 적는다** — git 밖 전역 설정이라 커밋 diff로는 사후 재구성이 불가능하다
+- [x] **스냅샷 먼저** — `~/.claude/settings.json.rejectbench-pre-e4-20260902`(바이트 일치 확인). 편집·검증·교체·복원을 한 스크립트에 박았다: 메모리 편집 → 임시 파일(원본 서식 보존) → 재파싱 + 검증 3종 + "collect.py 외 항목 불변" → `os.replace` → 교체 후 재검증, 실패 시 스냅샷 복원. **복원은 발동하지 않았다**
+- [x] 전역 설정에서 collect.py 호출 4건만 제거 — 사전 조회로 정확히 4건(각각 단독 그룹)임을 확인하고 제거. 빈 그룹은 남기지 않았고, 남는 훅이 없는 `PermissionDenied`는 이벤트 키를 뺐다. 같은 이벤트의 다른 훅 3건·나머지 이벤트·래퍼 배선(PreToolUse `Bash`, `PYTHONPATH` 접두 포함) 불변 — 22→18건, 최상위 키 16 그대로
+- [x] `hooks/collect.py` 삭제(`git rm`). `continuity.py`·`codex_handoff_gate.py`·각 테스트·`data/events.jsonl` 보존, `pyproject.toml`의 `testpaths`/`pythonpath` 무변경
+- [x] `docs/배선-목록.md` — collect.py 언급 모든 줄 갱신: E0 캡처 표의 "E4가 지운다", v0 절 제목·본문, cutover 대사의 죽은 번호 참조("HANDOFF 미결 3" → 항목명 "v0 수집기 퇴역")
+- [x] `README.md` "기존 수집기 v0" 문단을 퇴역 사실로
+- [x] 읽기 조회로 확인(스크립트와 별도 조회): 유효 JSON / collect.py 0건 / 래퍼 1건 + 스냅샷 대비 `diff`가 제거 줄뿐(collect.py 줄 4, 추가 줄 0)
+- [x] 캡처를 `docs/배선-목록.md`의 "E4 v0 수집기 퇴역" 절에 표로 적었다. `uv run pytest` 520건 통과(연속성 훅 테스트 잔존)
 
 작업 대상: [파일] `hooks/collect.py`(삭제), `docs/배선-목록.md`, `README.md` · **[외부·비버전관리 상태]** `~/.claude/settings.json`(항목 4건 제거).
 검증 게이트: 읽기 조회 3종 캡처(목적지 `docs/배선-목록.md`) + `uv run pytest` 전체 통과(연속성 테스트 잔존 확인).
