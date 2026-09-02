@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from rejectbench import (
+    SCHEMA_VERSION,
     Amendment,
     AppendStore,
     EnforcementRef,
@@ -31,8 +33,12 @@ from rejectbench.judge import CALIBRATION_FILENAME
 from rejectbench.records import SchemaError
 from rejectbench.report import (
     BASELINE_FILENAME,
+    PARTITION_OTHER,
+    PARTITION_TOOL_DEVELOPMENT,
     REPORTS_DIRNAME,
+    REPRESENTATIVE_PARTITION_MARK,
     TEST_EVIDENCE_MARK,
+    TOOL_DEVELOPMENT_PROJECT,
     Ratio,
     build_report,
     default_report_path,
@@ -376,3 +382,220 @@ class TestDefaultReportPath:
         path = default_report_path(store, now=NOW)
         assert path.parent == store.root / REPORTS_DIRNAME
         assert re.fullmatch(r"report-\d{8}T\d{6}Z\.md", path.name)
+
+
+# --- 003 §9 (E7) 보고서 파티션 — 도구개발 / 그-외 -------------------------------
+#
+# 운영 사건 집합(`operation_event_ids`)에서 파생되는 지표 전부를 시험/운영 분리 안쪽에서
+# 다시 `GuardEvent.project == "reject-bench"`(도구개발) / 그 외로 가른다. 대표값은 그-외.
+# 결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있다 — 합산 검산을 넣지 않는다.
+
+OTHER_PROJECT = "provenance"
+
+
+def build_partitioned_store(store: AppendStore) -> None:
+    """guard-a·guard-b에 도구개발/그-외 사건이 섞인 store.
+
+    guard-a: ev-1(도구개발 s-1, correct+useful) ev-2(도구개발 s-2, 보류 verdict + useful)
+             ev-3(그-외 s-o1, correct+unnecessary) ev-4(그-외 s-o2, incorrect+useful)
+             ev-5(그-외 s-o1, verdict 미처리 + uncertain 보류) · keep 결정 근거 (ev-3, ev-4)
+    guard-b: ev-6(도구개발 s-b1, correct+useful) ev-7(그-외 s-b2, correct+useful) · 결정 없음
+
+    귀결 — 결정 완료율: 전체 1/2(guard-a 결정 완료, guard-b는 파티션을 가로질러서만
+    판정 가능), 도구개발 0/0(guard-a는 ev-2 보류로 세션 1개, guard-b도 1개), 그-외 1/1.
+    분모 합 0+1 ≠ 2 — 합산 검산이 성립하지 않는 픽스처다.
+    """
+    spec_a = make_spec()
+    spec_b = make_spec(guard_id="guard-b", purpose="파티션을 가로지르는 가드")
+    store.append(spec_a)
+    store.append(spec_b)
+    e1 = make_event(spec_a, event_id="ev-1", session_id="claude:s-1", occurred_at=ts(10))
+    e2 = make_event(spec_a, event_id="ev-2", session_id="claude:s-2", occurred_at=ts(20))
+    e3 = make_event(
+        spec_a, event_id="ev-3", session_id="claude:s-o1", project=OTHER_PROJECT, occurred_at=ts(30)
+    )
+    e4 = make_event(
+        spec_a, event_id="ev-4", session_id="claude:s-o2", project=OTHER_PROJECT, occurred_at=ts(40)
+    )
+    e5 = make_event(
+        spec_a, event_id="ev-5", session_id="claude:s-o1", project=OTHER_PROJECT, occurred_at=ts(50)
+    )
+    e6 = make_event(spec_b, event_id="ev-6", session_id="claude:s-b1", occurred_at=ts(60))
+    e7 = make_event(
+        spec_b, event_id="ev-7", session_id="claude:s-b2", project=OTHER_PROJECT, occurred_at=ts(70)
+    )
+    for event in (e1, e2, e3, e4, e5, e6, e7):
+        store.append(event)
+    store.append(make_verdict(e1, verdict_id="vd-1"))
+    store.append(
+        make_verdict(e2, verdict_id="vd-2", verdict=Verdict.INSUFFICIENT_CONTEXT, judged_at=ts(80))
+    )
+    store.append(make_verdict(e3, verdict_id="vd-3"))
+    store.append(make_verdict(e4, verdict_id="vd-4", verdict=Verdict.INCORRECT_BLOCK))
+    store.append(make_verdict(e6, verdict_id="vd-6"))
+    store.append(make_verdict(e7, verdict_id="vd-7"))
+    store.append(make_review(e1, review_id="rv-1"))
+    store.append(make_review(e2, review_id="rv-2"))
+    store.append(make_review(e3, review_id="rv-3", utility=Utility.UNNECESSARY))
+    store.append(make_review(e4, review_id="rv-4"))
+    store.append(make_review(e5, review_id="rv-5", utility=Utility.UNCERTAIN, reviewed_at=ts(90)))
+    store.append(make_review(e6, review_id="rv-6"))
+    store.append(make_review(e7, review_id="rv-7"))
+    store.append(make_decision(evidence_event_ids=("ev-3", "ev-4")))
+
+
+class TestReportPartition:
+    def test_partition_key_is_the_tool_development_project(self):
+        assert TOOL_DEVELOPMENT_PROJECT == "reject-bench"
+
+    def test_every_operation_derived_metric_has_three_values(self, store):
+        build_partitioned_store(store)
+        data = build_report(store, now=NOW)
+        overall, tool, other = data.overall, data.tool_development, data.other
+        assert (overall.label, tool.label, other.label) == ("전체", PARTITION_TOOL_DEVELOPMENT, PARTITION_OTHER)
+
+        assert (overall.operation_count, tool.operation_count, other.operation_count) == (7, 3, 4)
+        assert (overall.completion.fraction, tool.completion.fraction, other.completion.fraction) == (
+            "1/2",
+            "0/0",
+            "1/1",
+        )
+        assert tool.completion.unverified and not other.completion.unverified
+        assert (overall.policy_mismatch.fraction, tool.policy_mismatch.fraction, other.policy_mismatch.fraction) == (
+            "1/5",
+            "0/2",
+            "1/3",
+        )
+        assert (
+            overall.unnecessary_block.fraction,
+            tool.unnecessary_block.fraction,
+            other.unnecessary_block.fraction,
+        ) == ("1/6", "0/3", "1/3")
+        assert (overall.disagreement.fraction, tool.disagreement.fraction, other.disagreement.fraction) == (
+            "2/5",
+            "0/2",
+            "2/3",
+        )
+        assert (other.correct_but_unnecessary.fraction, other.incorrect_but_useful.fraction) == ("1/3", "1/3")
+        assert (tool.correct_but_unnecessary.fraction, tool.incorrect_but_useful.fraction) == ("0/2", "0/2")
+
+        assert (overall.verdict_pending.unprocessed, tool.verdict_pending.unprocessed, other.verdict_pending.unprocessed) == (1, 0, 1)
+        assert (overall.verdict_pending.held, tool.verdict_pending.held, other.verdict_pending.held) == (1, 1, 0)
+        assert tool.verdict_pending.held_max_elapsed == NOW - ts(80)
+        assert other.verdict_pending.held_max_elapsed is None
+        assert (overall.review_pending.held, tool.review_pending.held, other.review_pending.held) == (1, 0, 1)
+        assert other.review_pending.held_max_elapsed == NOW - ts(90)
+        assert other.verdict_pending.unprocessed_max_elapsed == NOW - ts(50)
+
+    def test_flat_fields_are_the_overall_values(self, store):
+        build_partitioned_store(store)
+        data = build_report(store, now=NOW)
+        assert data.completion == data.overall.completion
+        assert data.policy_mismatch == data.overall.policy_mismatch
+        assert data.operation_count == data.overall.operation_count
+        assert data.verdict_pending == data.overall.verdict_pending
+
+    def test_completion_partitions_do_not_sum_to_the_total(self, store):
+        """결정 완료율은 가드 단위다 — guard-b는 전체에서만 판정 가능하다. 합산 검산 금지."""
+        build_partitioned_store(store)
+        data = build_report(store, now=NOW)
+        assert data.overall.completion.denominator == 2
+        assert (
+            data.tool_development.completion.denominator + data.other.completion.denominator
+            != data.overall.completion.denominator
+        )
+        # 사건 단위 지표의 원수는 두 벌의 합이 전체다 — 결정 완료율만 예외라는 사실을 함께 고정.
+        assert data.tool_development.operation_count + data.other.operation_count == data.overall.operation_count
+
+    def test_numerator_subset_holds_inside_each_partition(self, store):
+        build_partitioned_store(store)
+        data = build_report(store, now=NOW)
+        for metrics in (data.overall, data.tool_development, data.other):
+            for ratio in (
+                metrics.policy_mismatch,
+                metrics.unnecessary_block,
+                metrics.disagreement,
+                metrics.correct_but_unnecessary,
+                metrics.incorrect_but_useful,
+            ):
+                assert 0 <= ratio.numerator <= ratio.denominator
+            assert metrics.completion.decided_guard_ids <= metrics.completion.decidable_guard_ids
+
+    def test_render_shows_three_values_and_names_the_representative_partition(self, store):
+        build_partitioned_store(store)
+        report = generate_report(store, now=NOW)
+        assert REPRESENTATIVE_PARTITION_MARK in report  # "대표값은 그-외" 문면
+        assert "1/2 (50.0%)" in report  # 전체 완료율
+        assert f"{PARTITION_TOOL_DEVELOPMENT} 미검증 (분모 0 — 성공 아님)" in report  # 분모 0 파티션
+        assert f"{PARTITION_OTHER} 1/1 (100.0%)" in report
+        assert f"{PARTITION_TOOL_DEVELOPMENT} 0/2 (0.0%)" in report
+        assert f"{PARTITION_OTHER} 1/3 (33.3%)" in report
+        assert f"operation 7 · test 0 · unknown 0 · unregistered 0" in report
+        assert f"{PARTITION_TOOL_DEVELOPMENT} 3 · {PARTITION_OTHER} 4" in report
+        # 대표(그-외) 상태 줄과 전체 상태 줄이 각각 있다.
+        assert "운영: 증거 기반 결정 완료율 1/2 (50.0%)" in report
+        assert f"대표값({PARTITION_OTHER}): 증거 기반 결정 완료율 1/1 (100.0%)" in report
+
+    def test_rich_store_has_an_empty_other_partition_rendered_as_unverified(self, store):
+        """기존 픽스처는 전부 도구개발이다 — 그-외는 분모 0이라 미검증이지 성공이 아니다."""
+        build_rich_store(store)
+        data = build_report(store, now=NOW)
+        assert data.other.operation_count == 0
+        assert data.other.completion.unverified
+        assert data.tool_development.operation_count == data.overall.operation_count == 5
+        report = generate_report(store, now=NOW)
+        assert f"대표값({PARTITION_OTHER}): 미검증" in report
+        assert "운영: 미검증" not in report  # 전체 상태 줄은 그대로 전체 값이다
+
+    def test_non_operation_aggregates_stay_single_valued(self, store):
+        """손실·정정·강등·손상 줄·총 레코드·출처 집계·기준선·교정은 파티션하지 않는다."""
+        build_partitioned_store(store)
+        report = generate_report(store, now=NOW)
+        health = report.split("## 기록 건전성")[1].split("## drift")[0]
+        assert PARTITION_TOOL_DEVELOPMENT not in health and PARTITION_OTHER not in health
+        guards = report.split("## 가드별 현황")[1].split("## 기준선")[0]
+        # 가드별 표는 기존 project 열이 판별자다 — 열을 중복 추가하지 않는다.
+        assert f"project {OTHER_PROJECT}" not in guards  # spec의 project는 reject-bench
+        assert guards.count("project reject-bench") == 2
+        assert PARTITION_TOOL_DEVELOPMENT not in guards and PARTITION_OTHER not in guards
+
+    def test_no_home_path_or_session_ids_with_partitions(self, store):
+        build_partitioned_store(store)
+        report = generate_report(store, now=NOW)
+        assert str(Path.home()) not in report
+        assert "claude:" not in report
+        for event_id in ("ev-1", "ev-5", "ev-7"):
+            assert event_id not in report
+
+
+class TestSchemaVersionHeader:
+    def legacy_line(self, store: AppendStore, event) -> None:
+        payload = event.to_json()
+        del payload["session_id_format"]
+        payload["schema_version"] = "7.0"
+        with open(store.path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
+
+    def test_single_value_when_every_record_is_current(self, store):
+        build_rich_store(store)
+        data = build_report(store, now=NOW)
+        assert data.schema_versions_present == (SCHEMA_VERSION,)
+        report = generate_report(store, now=NOW)
+        assert f"- 스키마 버전: {SCHEMA_VERSION}\n" in report
+        assert "스냅샷 실존" not in report
+
+    def test_empty_store_shows_the_recorder_version_only(self, store):
+        data = build_report(store, now=NOW)
+        assert data.schema_versions_present == ()
+        assert f"- 스키마 버전: {SCHEMA_VERSION}\n" in generate_report(store, now=NOW)
+
+    def test_mixed_store_lists_recorder_version_and_present_set(self, store):
+        spec = make_spec()
+        store.append(spec)
+        store.append(make_event(spec, event_id="ev-new", session_id="claude:s-1"))
+        self.legacy_line(store, make_event(spec, event_id="ev-old", session_id="claude:s-2", occurred_at=ts(5)))
+        data = build_report(store, now=NOW)
+        assert data.corrupt_line_count == 0  # 구형 줄은 손상 줄이 아니다 (E2 파서 완화)
+        assert data.schema_versions_present == ("7.0", SCHEMA_VERSION)
+        report = generate_report(store, now=NOW)
+        assert f"- 스키마 버전: 기록기 현행 {SCHEMA_VERSION} · 스냅샷 실존 7.0, {SCHEMA_VERSION}\n" in report

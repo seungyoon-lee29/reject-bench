@@ -133,14 +133,14 @@
 
 의존: E2 (스키마 버전 헤더 처리가 7.1 인상 뒤에만 의미가 있다). spec §9.
 
-- [ ] 실패 테스트 먼저: 도구개발/그-외 사건이 섞인 픽스처에서 세 값(전체·도구개발·그-외)이 각각 맞게 나오고, 분모 0 파티션이 `미검증`으로 렌더링됨
-- [ ] 파티션 키 구현: `GuardEvent.project == "reject-bench"` → 도구개발, 그 외 → 그-외
-- [ ] 적용 범위 — `operation_event_ids` 파생 지표 전부: 5개 비율, 운영 사건 수, 판정·검토 미처리/보류 현황, 결정 완료율
-- [ ] 미적용 확인: 손실·정정·강등·손상 줄·총 레코드 수, 시험/unknown/unregistered 집계, 기준선·교정 사이드카는 단일 값 유지. **가드별 표는 기존 `project` 열이 판별자 — 열을 중복 추가하지 않는다**
-- [ ] 대표값이 **그-외**임을 보고서 문면에 렌더링
-- [ ] **합산 검산을 넣지 않는다** — 결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있다(2세션 규칙). 이 사실을 테스트로 고정한다
-- [ ] 스키마 버전 헤더: 기록기 현행 버전 + 스냅샷에 실제 존재하는 버전 집합 병기(둘이 같으면 한 값)
-- [ ] 비노출 계약 회귀 확인: 홈 경로·세션 식별자·사건 id·enforcement 경로·guard_hint 미노출 그대로
+- [x] 실패 테스트 먼저 — `build_partitioned_store`(guard-a 5건·guard-b 2건, 도구개발 3/그-외 4) + 스키마 헤더 3건, 신규 12건 red(import 단계) 확인 후 구현. 전체 532건 통과
+- [x] 파티션 키 — `report.TOOL_DEVELOPMENT_PROJECT = "reject-bench"`, 술어 `_is_tool_development`/`_is_other`
+- [x] 적용 범위 — `metrics`의 `operation_event_ids`·`decidable_event_ids`·`decision_completion`에 `event_filter` 인자를 더해 **같은 정의를 파티션 위에서 재사용**(재정의 없음). `report._operation_metrics`가 한 사건 집합의 `OperationMetrics`(5개 비율·운영 사건 수·미처리/보류·결정 완료율)를 내고 전체·도구개발·그-외 세 벌을 `ReportData.overall/tool_development/other`에 싣는다. 기존 평면 필드는 `overall`과 같은 값(테스트로 고정)
+- [x] 미적용 확인 — 기록 건전성·가드별 현황 절에 파티션 라벨이 없음을 테스트로 고정. 가드별 표는 기존 `project` 열 그대로
+- [x] 대표값 — 상태 절에 `대표값(그-외): …` 줄(분모 0이면 미검증), 대표 지표 절에 `REPRESENTATIVE_PARTITION_MARK`("대표값은 그-외") 문면과 파티션 정의
+- [x] 합산 검산 없음 — guard-b가 파티션을 가로질러서만 판정 가능한 픽스처로 분모 합 0+1 ≠ 2를 테스트로 고정. 보고서 문면에도 "합으로 검산하지 않는다"를 적었다
+- [x] 스키마 버전 헤더 — `schema_versions_present`(스냅샷 실존 집합, 정렬). 같으면(또는 빈 store면) `- 스키마 버전: 7.1`, 다르면 `기록기 현행 7.1 · 스냅샷 실존 7.0, 7.1`. 운영 store 실측: 후자 문면이 실제로 나온다(2026-09-02 새 7.1 사건 1건)
+- [x] 비노출 회귀 — 파티션 픽스처에서 홈 경로·`claude:`·사건 id 0회. **추가(판별력)**: 돌연변이 5종 전부 red(파티션 키 뒤집힘·완료율 필터 무시·운영 사건 필터 무시·스키마 헤더 단일 고정·헤더 항상 병기)
 
 작업 대상: [파일] `rejectbench/report.py`, `tests/test_report.py`.
 검증 게이트: 신규 테스트 red→green + `uv run pytest` 전체 통과(기존 보고서 계약 회귀 포함).

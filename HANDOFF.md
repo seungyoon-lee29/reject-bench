@@ -1,10 +1,10 @@
-# 핸드오프 — 003 E7 대기 (2026-09-02)
+# 핸드오프 — 003 주기 빌드 완료, PR 대기 (2026-09-02)
 
 ## 지금 하던 것
 
-003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0 → E1 → E2 → E3 → E4 → E5 → E6**까지 끝냈다. E0까지는 main에 머지돼 있고 **E1~E6는 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋돼 있다(push·PR 안 함)**. 남은 것은 **E7**(보고서 파티션) 하나다.
+003 주기(운영 경험 개선 증분)의 **여덟 태스크 E0~E7이 전부 끝났다.** E0까지는 main에 머지돼 있고 **E1~E7은 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋 9개로 쌓여 있다(push·PR 안 함 — push는 사용자 요청 시만)**. 완료 게이트 중 남은 것은 "병합"뿐이다: `uv run pytest` 532건 exit 0, E3 임시 store 실기동 왕복 1건, E0·E4 읽기 조회 캡처(`docs/배선-목록.md`), 정본 3종 갱신 + `diff CLAUDE.md AGENTS.md` exit 0, 운영 `data/` 비접촉(읽기만) — 전부 충족.
 
-계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0~E6 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
+계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 각 태스크 체크박스는 `.dryforge/plan.md`에 있고 전부 `[x]`다. 주기가 병합되면 `.dryforge/` 루트 3종을 `003/`으로 옮기는 아카이브 관례가 남는다(하드 게이트 9 — 그때까지는 루트에 둔다).
 
 **끝난 것**
 
@@ -13,7 +13,8 @@
 - **판정 CLI 주입구** (PR #5) — `judge --model-settings JSON`(전체 교체). `AGENTS.md:42`가 처방한 경로.
 - **E0 배선 수정** (PR #6) — 전역 훅에 인라인 `PYTHONPATH` 접두. 저장소 밖 cwd에서 `ModuleNotFoundError` → `IMPORT OK`. 캡처는 `docs/배선-목록.md`의 "E0 배선 수정" 절.
 - **E0 실기동 검증** — 다른 저장소(`provenance`) cwd에서 래퍼를 직접 불러 가드 차단(exit 2)과 **임시 store 기록**까지 확인했다. `project: provenance`, `origin: test`(`explicit_flag`). 운영 store 무접촉.
-- **E6 정본 갱신** (커밋 `docs: update canonical docs for the extended redaction contract`) — `rejectbench/AGENTS.md`의 낡은 비노출 두 문장을 E3 계약(두 부류·자격은 UUID 문법·잔여 한계 둘·파묻힌 UUID 양성 대조)으로 바꾸고, 모듈 맵(`records`·`recorder`)·절단 되물림·collect.py 퇴역·함정 2건을 이 주기 상태로 맞췄다. 루트 `CLAUDE.md` 비협상 ⑥을 같은 내용으로 고치고 `AGENTS.md`를 사본으로 동기화 — `diff CLAUDE.md AGENTS.md` exit 0. 전체 게이트 520건.
+- **E7 보고서 파티션** (커밋 `feat: partition operation metrics by tool-development origin`) — `metrics`의 `operation_event_ids`·`decidable_event_ids`·`decision_completion`에 `event_filter`를 더해 같은 정의를 파티션 위에서 재사용, `report`가 전체·도구개발(`project == "reject-bench"`)·그-외 세 벌(`OperationMetrics`)을 병기하고 상태 절에 `대표값(그-외)` 줄을 낸다. 합산 검산 없음(가드 단위 완료율은 두 벌의 합 ≠ 전체 — 픽스처로 고정). 스키마 헤더는 기록기 현행 + 스냅샷 실존 집합(같으면 한 값). 신규 12건, 전체 532건, 돌연변이 5/5 red.
+- **E6 정본 갱신** (커밋 `85b2885`) — `rejectbench/AGENTS.md`의 낡은 비노출 두 문장을 E3 계약(두 부류·자격은 UUID 문법·잔여 한계 둘·파묻힌 UUID 양성 대조)으로 바꾸고, 모듈 맵(`records`·`recorder`)·절단 되물림·collect.py 퇴역·함정 2건을 이 주기 상태로 맞췄다. 루트 `CLAUDE.md` 비협상 ⑥을 같은 내용으로 고치고 `AGENTS.md`를 사본으로 동기화 — `diff CLAUDE.md AGENTS.md` exit 0. 전체 게이트 520건.
 - **E5 관찰 프로토콜 추기** (커밋 `2a9a6f0`) — `docs/관찰-프로토콜.md` "변경 기록"에 append 8건(머리말 1줄 포함, 기존 줄 삭제·수정 0 — `git diff --numstat` 삭제 0). ① 기준선 이월 규칙 ② 기구 변경 E0·E1·E2·E4(커밋 해시 명기, E3는 조회 표면이라 제외) ③ 관측 무대 변화(`protect-live-reports` 기대 발동 0 수렴, `block-dangerous-git` 단독 의존) ④ 관측 범위 소급 정정(2026-08-29~09-01 구간은 사실상 reject-bench 세션만) ⑤ 자기차단 산입 규칙 + **D12 두 선등록**(종료 조건은 그-외 파티션으로 판정 / `insufficient_context` 임계 확정 5건 이상에서 50% 이상, 전체 지표 기준) ⑥ 본문 vs 변경 기록 승자 규칙(변경 기록 안) ⑦ 이월 누계 표기(현재 0건) ⑧ ADR 0001 부분 supersede. `docs/adr/0001-…md`는 frontmatter `status: partially superseded`와 끝의 "Supersede 기록" 절만 더했다(본문 보존).
 - **E4 v0 수집기 완전 퇴역** (커밋 `e439c82`) — 사용자 전역 `~/.claude/settings.json`에서 `hooks/collect.py` 호출 4건만 제거(22→18건, 최상위 키 16 그대로, 남는 훅이 없는 `PermissionDenied`는 이벤트 키 제거, 래퍼 배선 불변), 저장소에서 `hooks/collect.py` 삭제, `docs/배선-목록.md`·`README.md` 갱신. 스냅샷 `~/.claude/settings.json.rejectbench-pre-e4-20260902`(E0 스냅샷과 함께 남긴다). 편집·검증 3종·원자 교체·복원을 한 스크립트에 박았고 복원은 발동하지 않았다. 스크립트와 별도의 읽기 조회로 재검증: 유효 JSON / collect.py 0건 / 래퍼 1건, 스냅샷 대비 diff는 제거 줄만(collect.py 줄 4·추가 0). 캡처 표는 `docs/배선-목록.md`의 "E4 v0 수집기 퇴역" 절. 전체 게이트 520건(연속성 훅 테스트 잔존).
 - **E3 조회 표면 가림 확장** (커밋 `cc1d635`) — `mcp_server.OutputBoundary`가 저장 세션 ID를 출력 시점 모양으로 두 부류로 가른다: `records.split_session_id`로 분해한 원본이 **UUID 문법**(`_UUID_SYNTAX`, §4 술어 아님)이면 복합값·원본 둘 다 **무경계 부분문자열** needle로 같은 별칭에, 그 외(자리표시·비준수·`:` 없는 값)는 002 토큰 경계 유지. needle → 정본 저장 ID 표(`_needles`) 하나로 통합했고 단일 패스·긴 needle 우선·홈 치환 전 별칭화는 그대로. 신규 테스트 9건(파묻힘 양성 대조·자리표시/비준수 비훼손·날짜꼴/hex/event_id 불변·코너 규정·stdio 왕복·첫-콜론 분해·접두 겹침), 전체 게이트 520건 통과. **실기동 왕복**: 하드 게이트 3 명령을 저장소 밖 cwd에서 임시 store로 별도 기동해 `guard_evidence` 호출 → 원본 0회, `reason: "transcript /x/S1.jsonl; glued fooS1bar; whole S1"`. 돌연변이 7/7 red(둘은 처음 살아남아 픽스처를 더했다 — 접두 겹침 `claude:s`/`claude:s-1` 자유 텍스트는 002 이후 한 번도 없던 픽스처). `rejectbench/AGENTS.md:27·:29`와 루트 `CLAUDE.md`/`AGENTS.md` ⑥은 **이제 낡았다** — E6가 갱신한다.
@@ -24,26 +25,27 @@
 - **검토 큐 2건** — 둘 다 `unnecessary` 기록. 강등하지 않았다(진짜 operation 사건이라 강등은 데이터 세탁이고 D2와 충돌).
 - **판정 기본값 정합성** — `DEFAULT_MODEL_ID`를 `gpt-4.1-mini`로. gpt-5 계열이 `temperature` 고정을 거부해 기본값끼리 배타적이었다. 결정성(`AGENTS.md:57`)을 지키는 쪽을 택했고 상수 수준 회귀 테스트를 걸었다.
 
-**현재 표본** (2026-09-02 store 실측 — 이전 판의 "운영 사건 2건"은 낡은 값이었다)
+**현재 표본** (2026-09-02 14:30 KST store 실측)
 
-- `guard_event` 7건 = **operation 6 + test 1**. operation 6건은 전부 `block-dangerous-git`·`project: reject-bench`(도구개발 파티션)
-- **서로 다른 operation 세션 2개**: `claude:90d3bc6…`(08-29, 2건, 판정·검토 완료) · `claude:c92a961…`(09-01, **4건, 판정 0·검토 0**)
-- 4건은 넷 다 `heredoc: True`에 `<command omitted>` — 문서 텍스트를 heredoc으로 쓰다 가드가 **명령 문자열 전문**을 매칭한 자기차단. 선례 2건과 성격이 같아 넷 다 `unnecessary`로 검토했다(강등하지 않았다 — 진짜 operation 사건이고 D2와 충돌한다)
-- **그-외 파티션의 operation 사건은 0건** — reject-bench 밖 자연 발동은 아직 없다(미결 4의 발동 조건이기도 하다)
+- `guard_event` **8건** = operation 7 + test 1. operation 7건은 전부 `block-dangerous-git`·`project: reject-bench`(도구개발 파티션)
+- **서로 다른 operation 세션 3개**: `claude:90d3bc6…`(08-29, 2건, 판정·검토 완료) · `claude:c92a961…`(09-01, 4건, 판정·검토 완료) · **`claude:55b5d4a…`(09-02 02:35 UTC, 1건, 판정 0·검토 0 — 새로 들어왔다)**
+- **새 사건 `ev-527f00a4…`**: 다른 Claude 세션(이 작업 세션 `2f50abe8`이 아니다)의 heredoc 자기차단(`cat`+heredoc에 `push --force` 텍스트, `<command omitted>`), 선례 6건과 성격이 같다. **스키마 7.1·`session_id_format: conforming`으로 기록된 첫 레코드** — E2 코드가 전역 훅에서 실제로 돈 증거다. **판정·검토는 하지 않았다** — 검토(`useful`/`unnecessary`)는 운영자 판단이고 판정은 과금 호출이라 사용자 행위로 남긴다. 절차: `set -a; . ./.env; set +a` 뒤 `judge --approve-billing` → `review record --utility …`(위험 패턴을 note에 인용하지 말 것)
+- **그-외 파티션의 operation 사건은 여전히 0건** — reject-bench 밖 자연 발동 없음(미결 4의 발동 조건이기도 하다)
 
-**현재 지표** (2026-09-02 `uv run python -m rejectbench.cli report`, 미처리 4건 판정·검토 후)
+**현재 지표** (2026-09-02 E7 뒤 `generate_report` 읽기 전용 렌더, 새 사건 미처리 상태)
 
-- 대표 지표(증거 기반 결정 완료율): **0/1 (0%)** — 보고서는 `block-dangerous-git`을 판정 가능 가드로 렌더한다(운영 세션 2·판정 가능 세션 2). **단 이건 전체 지표다.** D12에 따라 종료 조건은 그-외로 판정하고, 그-외 분모는 0이라 **미검증**이다. E7 파티션이 이 두 값을 나란히 내면 문면이 정리된다
-- 정책 불일치율 **0/4** · 사용자 불필요 차단율 **6/6(100%)** · LLM-사용자 불일치율 **4/4(100%)** — 전부 "정책상 옳은 차단 + 사용자 불필요"
-- PolicyVerdict 미처리 **0건** · 보류(`insufficient_context`) **2건** · UtilityReview 미처리 0건 · 보류 0건 — **검토 큐가 비었다**
-- LossRecord 2건(`verdict_failure` — 판정 1차 실패의 흔적, 정상) · 손상 줄 0 · drift 0 · post-remove 0
-- 스키마 버전: store 실존 `{7.0}` 29건(E2 뒤에도 재작성 없음), 기록기 현행 7.1 — 다음 자연 발동부터 7.1·`session_id_format` 채워진 레코드가 쌓인다
+- 헤더: `스키마 버전: 기록기 현행 7.1 · 스냅샷 실존 7.0, 7.1` · 레코드 30건
+- 상태: `운영: 증거 기반 결정 완료율 0/1 (0.0%)` / **`대표값(그-외): 미검증 — 그-외 판정 가능 가드 0`** — 종료 조건은 이 값으로 판정한다(D12, 프로토콜 변경 기록 ⑤)
+- 정책 불일치율 **0/4 — 도구개발 0/4 · 그-외 미검증** · 사용자 불필요 차단율 **6/6 — 도구개발 6/6 · 그-외 미검증** · LLM-사용자 불일치율 **4/4 — 도구개발 4/4 · 그-외 미검증**
+- operation 사건 파티션: **도구개발 7 · 그-외 0**
+- PolicyVerdict 미처리 **1건**(새 사건) · 보류 2건 · UtilityReview 미처리 **1건** · 보류 0 — 전부 도구개발
+- LossRecord 2건(`verdict_failure`, 정상) · 손상 줄 0 · drift 0 · post-remove 0
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**E7의 첫 체크박스 — 실패 테스트를 먼저 쓴다.** `tests/test_report.py`에 도구개발(`project == "reject-bench"`)/그-외 사건이 섞인 임시 store 픽스처를 만들고, `operation_event_ids` 파생 지표 전부(정책 불일치율·불필요 차단율·불일치율·`correct_but_unnecessary`·`incorrect_but_useful`·운영 사건 수·판정/검토 미처리·보류 현황·증거 기반 결정 완료율)에 **전체·도구개발·그-외 세 값**이 각각 맞게 나오고, 분모 0인 파티션은 `미검증`으로 렌더링되며, **대표값은 그-외**라는 문면이 보고서에 있고, 스키마 버전 헤더가 기록기 현행(7.1)과 스냅샷 실존 집합(`{7.0}` 등)을 **다르면 병기·같으면 한 값**으로 내는지 단언한다. 합산 검산을 넣지 않는다는 사실도 테스트로 고정한다(결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있음 — 한 가드가 전체에서는 판정 가능이면서 어느 파티션에서도 불가인 픽스처). 미적용 대상(손실·정정·강등·손상 줄·총 레코드·시험/unknown/unregistered 집계·기준선·교정 사이드카·가드별 표의 `project` 열)은 단일 값 그대로.
+**사용자 결정 둘을 받는다.** ① 브랜치 `dryforge/003-e1-truncation-retreat`(main 대비 커밋 9개)를 push하고 PR을 열지 — push는 사용자 요청 시만이다. 병합 뒤에는 `.dryforge/` 루트 3종을 `003/`으로 아카이브한다(하드 게이트 9). ② 새 사건 `ev-527f00a4…`(`claude:55b5d4a…`, 도구개발 자기차단)의 판정(`judge --approve-billing`, `.env` 셸 주입)과 검토(`review record --utility …`) — 선례 6건과 같은 heredoc 오탐이라 `unnecessary`가 자연스럽지만 검토는 운영자 판단이다. 판정 순서 규칙(두 모델 대조 시 rejudge 순서가 확정값을 정한다 — 미결 2)을 먼저 정하고 실행할 것.
 
-red 확인 후 `.dryforge/spec.md` §9대로 `rejectbench/report.py`에 구현한다 — 지표 정의는 `metrics`의 단일 정의를 재사용하고 재정의하지 않는다(파티션은 사건 집합을 가른 `Dataset` 사본이 아니라 `operation_event_ids`의 부분집합으로 계산하는 쪽이 안전한지 먼저 `metrics.py`·`report.py`를 읽고 정한다). 비노출 계약(홈 경로·세션 식별자·사건 id·enforcement 경로·guard_hint 미렌더링) 회귀 확인. 커밋 `feat: partition operation metrics by tool-development origin`. 그 뒤 완료 게이트(`uv run pytest` exit 0 캡처 + 정본 3종 갱신 확인)를 점검하고 사용자에게 **push·PR 여부**를 묻는다 — push는 사용자 요청 시만.
+그 뒤는 관측 대기다: 4주 종료 판정 2026-09-26경까지 그-외 자연 발동이 없으면 "운영 빈도 미검증"으로 종료(D12). 강제 발동 금지.
 
 ## 미결 결정
 
