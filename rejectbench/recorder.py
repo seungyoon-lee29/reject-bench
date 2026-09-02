@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import sys
 import tempfile
 import uuid
@@ -220,15 +221,23 @@ def _detect_drift(spec: GuardSpec, guard_path: str) -> bool:
 
 
 def _home_path(env: Mapping[str, str]) -> str:
-    """절단이 아는 홈 절대 경로 원문. 알 수 없거나 루트면 대상에서 뺀다."""
+    """절단이 아는 홈 절대 경로 원문. 알 수 없거나 루트면 대상에서 뺀다.
+
+    주입된 `env`만 본다 — `Path.home()`은 프로세스 환경을 읽어 "홈 없음" 경로가
+    개발자 실제 홈으로 도는 것을 숨긴다. env에 없으면 계정 DB(pwd)로 폴백한다.
+    끝 슬래시는 정규화한다: `HOME=/Users/x/`이면 사유 속 `/Users/x`가 needle과
+    어긋나 보호가 빠지고, 조회 경계(`Path.home()` 기반)와도 다른 값을 보게 된다.
+    """
     home = env.get("HOME") or ""
     if not home:
         try:
-            home = str(Path.home())
-        except (RuntimeError, OSError):  # 홈을 알 수 없는 환경
+            home = pwd.getpwuid(os.getuid()).pw_dir
+        except (KeyError, OSError, AttributeError):  # 홈을 알 수 없는 환경
             home = ""
-    # 루트를 홈으로 잡으면 모든 경로 조각이 민감값이 된다.
-    return home if home not in ("", "/") else ""
+    home = home.rstrip("/")
+    # 루트("/")는 rstrip 뒤 빈 문자열이다 — 루트를 홈으로 잡으면 모든 경로 조각이
+    # 민감값이 되므로 그대로 대상에서 뺀다.
+    return home
 
 
 def _sensitive_values(
@@ -243,20 +252,20 @@ def _sensitive_values(
     """
     _, raw = split_session_id(session_id)
     candidates = (_home_path(env), session_id, raw if context_available and raw else "")
-    return tuple(dict.fromkeys(value for value in candidates if value))
+    return tuple(value for value in candidates if value)
 
 
 def _whitespace_cut(text: str, cut: int) -> int:
-    """앞 `cut`자 안의 마지막 공백류(개행·탭 포함) 앞까지 되물린 절단점.
+    """공백 구분 단위를 반토막 내지 않는 절단점 — `cut` 이하.
 
     경계 술어는 `str.isspace()`다 — 계약의 "공백 구분 단위"가 `str.split()`
-    경계이고 `split()`이 쓰는 술어가 이것이다. 뒤에서 두 번 훑는 이유는 정규식
-    판(끝을 앵커로 잡는 형태)이 같은 답을 주면서도 앞 `cut`자가 한 덩어리인
-    입력 — 경로 덤프 한 줄, compact JSON 한 줄 — 에서 역추적으로 2차 시간이
-    되기 때문이다. 실측 40ms 대 0.08ms이고, 이 판은 상한이 `cut`이라 병리
-    입력에서도 그 상한을 넘지 않는다. 두 판의 절단점은 무작위 10만 건과
-    경계 케이스에서 전부 일치한다.
+    경계이고 `split()`이 쓰는 술어가 이것이다. `cut` 자리가 공백류면 단위가
+    거기서 정확히 끝난 것이라 되물릴 이유가 없다. 그 외에는 앞 `cut`자 안의
+    마지막 공백류 앞까지 되물린다. 뒤에서 훑는 선형 구현을 쓴다 — 정규식 판은
+    공백 없는 한 덩어리 입력에서 역추적으로 2차 시간이 된다(plan.md E1).
     """
+    if cut < len(text) and text[cut].isspace():
+        return cut
     head = text[:cut]
     index = len(head)
     while index > 0 and not head[index - 1].isspace():
@@ -271,24 +280,20 @@ def _retreat_past_sensitive(text: str, cut: int, sensitive: tuple[str, ...]) -> 
 
     가로지름 = 등장이 `cut` 앞에서 시작해 `cut` 뒤에서 끝난다. **가로지를
     때만** 되물린다 — 본문 안에 온전히 든 등장까지 되물리면 사유가 통째로
-    사라진다. 찾는 범위를 그 조건으로 좁혔으므로 되물림은 항상 `cut`보다
-    앞으로만 가고, 따라서 유한 단계에 멈춘다. 그럼에도 전진 검사를 남긴 것은
-    이 모듈이 E0 이후 **모든 저장소의 Bash 훅**에서 로드되고 이 루프가 차단
-    사건마다 도는 자리라, 무한 루프의 대가가 예외보다 크기 때문이다.
+    사라진다. 찾는 창의 상한이 `cut - 1`이라 찾은 시작은 항상 `cut`보다 앞이고,
+    따라서 루프는 유한 단계에 멈춘다.
     """
     while cut > 0:
         starts = []
         for value in sensitive:
             span = len(value)
+            # 창 [cut-span+1, cut-1]: 이 안에서 시작하는 등장만 cut을 가로지른다
             found = text.find(value, max(0, cut - span + 1), cut + span - 1)
             if found != -1:
                 starts.append(found)
         if not starts:
             break
-        nearest = min(starts)
-        if nearest >= cut:  # 전진하지 않는 되물림 — 도달 불가지만 잠가 둔다
-            break
-        cut = nearest
+        cut = min(starts)
     return cut
 
 
@@ -301,17 +306,26 @@ def _cut_point(text: str, sensitive: tuple[str, ...]) -> int:
     return _retreat_past_sensitive(text, _MAX_REASON, sensitive)
 
 
-def _blind_truncate(text: str) -> str:
-    """되물림 없는 현행 절단 — 내부 폴백 경로(spec §3.5)가 쓴다."""
+def _truncate_reason(
+    text: str, *, env: Mapping[str, str], session_id: str, context_available: bool
+) -> str:
+    """상한 초과 사유만 절단한다. 절단점 계산이 죽으면 맹목 절단(spec §3.5).
+
+    이 폴백은 `assemble_event` 안에서 닫혀야 한다 — 예외가 밖으로 새면
+    `record_guard_result`가 `_record_loss`로 보내 `recorded=False`가 된다.
+    """
     if len(text) <= _MAX_REASON:
         return text
-    return text[:_MAX_REASON] + _TRUNCATION_MARKER
-
-
-def _truncate_reason(text: str, sensitive: tuple[str, ...]) -> str:
-    if len(text) <= _MAX_REASON:
-        return text
-    return text[: _cut_point(text, sensitive)] + _TRUNCATION_MARKER
+    try:
+        cut = _cut_point(
+            text,
+            _sensitive_values(
+                env=env, session_id=session_id, context_available=context_available
+            ),
+        )
+    except Exception:
+        cut = _MAX_REASON  # 절단 계산 결함이 사건을 LossRecord로 강등시키지 않는다
+    return text[:cut] + _TRUNCATION_MARKER
 
 
 # --- 조립 --------------------------------------------------------------------
@@ -354,19 +368,12 @@ def assemble_event(
         }
         drift = _detect_drift(spec, guard_path)
 
-    scrubbed = scrub_text(redact_command_echo(reason))
-    try:
-        scrubbed = _truncate_reason(
-            scrubbed,
-            _sensitive_values(
-                env=env, session_id=session_id, context_available=context_available
-            ),
-        )
-    except Exception:
-        # 절단 계산 결함이 사건을 LossRecord로 강등시키지 않는다 (spec §3.5).
-        # 이 폴백은 assemble_event 안에서 닫힌다 — 예외가 밖으로 새면
-        # record_guard_result가 _record_loss로 보내 recorded=False가 된다.
-        scrubbed = _blind_truncate(scrubbed)
+    scrubbed = _truncate_reason(
+        scrub_text(redact_command_echo(reason)),
+        env=env,
+        session_id=session_id,
+        context_available=context_available,
+    )
     return GuardEvent(
         event_id=f"ev-{uuid.uuid4().hex}",
         occurred_at=now,

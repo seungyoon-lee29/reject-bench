@@ -500,6 +500,23 @@ def test_truncation_retreats_to_the_last_whitespace_unit(tmp_path):
     assert len(body_of(stored)) <= MAX  # 되물림은 본문을 줄이기만 한다
 
 
+def test_unit_ending_exactly_at_the_cap_is_kept_whole(tmp_path):
+    """상한 자리가 공백류면 단위가 거기서 끝난 것이다 — 되물리지 않는다."""
+    text = spaced(2996) + dense(1004) + " " + dense(500)
+    assert text[MAX].isspace() and not text[MAX - 1].isspace()
+    stored = truncate_case(tmp_path, text)
+    assert stored == text[:MAX] + MARKER
+
+
+def test_home_with_trailing_slash_still_protects_the_path(tmp_path):
+    """`HOME=/Users/x/`여도 사유 속 `/Users/x`가 needle이다 — 정규화."""
+    needle = HOME + "/workspace/evidence.md"
+    text = spaced(3990) + needle + dense(200)
+    stored = truncate_case(tmp_path, text, home=HOME + "/")
+    assert stored == text[:3989] + MARKER
+    assert not crosses_cut(text, stored, needle)
+
+
 def test_home_path_is_never_cut_in_half(tmp_path):
     needle = HOME + "/workspace/reject-bench/evidence.md"
     text = spaced(3990) + needle + dense(200)
@@ -655,8 +672,19 @@ def test_placeholder_session_path_still_protects_the_home_path(tmp_path):
     assert event.reason == dense(3990) + MARKER
 
 
-def test_env_without_home_still_records_and_truncates(tmp_path):
-    """홈을 인자로 못 받아도 절단은 돌고 기록은 성립한다."""
+def test_env_without_home_still_records_and_truncates(tmp_path, monkeypatch):
+    """홈을 env로도 계정 DB로도 못 알아내도 절단은 돌고 기록은 성립한다.
+
+    `Path.home()`은 프로세스 환경을 읽으므로 여기서 쓰면 "홈 없음"이 아니라
+    개발자 실제 홈으로 도는 경로가 된다 — 계정 DB 폴백까지 막아 실제로 빈 홈을
+    탄다.
+    """
+
+    def no_account(_uid):
+        raise KeyError("no passwd entry")
+
+    monkeypatch.setattr(recorder.pwd, "getpwuid", no_account)
+    assert recorder._home_path({}) == ""
     store, outcome = record(
         tmp_path,
         payload_text=payload_text(session_id=SESSION_RAW),
@@ -687,20 +715,6 @@ def test_truncation_failure_falls_back_to_blind_cut_and_still_records(tmp_path, 
     assert not [r for r in result.records if isinstance(r, LossRecord)]
     (event,) = [r for r in result.records if isinstance(r, GuardEvent)]
     assert event.reason == text[:MAX] + MARKER  # 되물림 없는 현행 절단
-
-
-def test_truncation_bounds_are_one_ratio_apart():
-    """상한과 하한이 따로 놀면 조용히 깨진다 — 세 값을 리터럴로 못 박는다.
-
-    "하한을 상한의 비율로 계산한다"는 코드 형태 요구라 값 단언으로는 잡히지
-    않는다 — `_MIN_REASON`을 2000으로 하드코딩해도 비율 식은 참으로 남는다.
-    그래서 파생식을 되풀이하지 않고 값을 각각 고정한다: 상한만 바꾸고 하한을
-    잊으면 `_MAX_REASON` 단언에서 걸려 계약 개정 없이는 지나가지 못한다.
-    """
-    assert recorder._MAX_REASON == MAX
-    assert recorder._MIN_REASON_RATIO == 0.5
-    assert recorder._MIN_REASON == FLOOR
-    assert recorder._TRUNCATION_MARKER == MARKER
 
 
 # --- 세션 ID 적재 형식 (003 spec §4) -------------------------------------------

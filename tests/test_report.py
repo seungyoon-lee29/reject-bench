@@ -536,6 +536,40 @@ class TestReportPartition:
         assert "운영: 증거 기반 결정 완료율 1/2 (50.0%)" in report
         assert f"대표값({PARTITION_OTHER}): 증거 기반 결정 완료율 1/1 (100.0%)" in report
 
+    def test_subdirectory_cwd_of_this_repo_is_counted_as_other(self, store):
+        """파티션 키는 cwd basename이다 — 하위 디렉터리 cwd는 그-외로 간다 (spec §9.1 한계).
+
+        고치는 테스트가 아니라 한계를 고정하는 테스트다. 기록기가 저장소 식별로 바뀌면
+        이 테스트가 먼저 깨져 spec §9.1의 한계 문면을 함께 고치게 한다.
+        """
+        spec_a = make_spec()
+        store.append(spec_a)
+        store.append(make_event(spec_a, event_id="ev-1", session_id="claude:s-1", project="docs"))
+        store.append(
+            make_event(spec_a, event_id="ev-2", session_id="claude:s-2", project="reject-bench-wt2")
+        )
+        data = build_report(store, now=NOW)
+        assert (data.tool_development.operation_count, data.other.operation_count) == (0, 2)
+        report = generate_report(store, now=NOW)
+        assert "파티션 키의 한계" in report
+
+    def test_decision_with_evidence_across_partitions_is_undecided_in_other(self, store):
+        """근거가 두 파티션에 걸친 결정은 그-외에서 미결정이다 (spec §9.6)."""
+        spec_a = make_spec()
+        store.append(spec_a)
+        e1 = make_event(spec_a, event_id="ev-1", session_id="claude:s-1")  # 도구개발
+        e2 = make_event(spec_a, event_id="ev-2", session_id="claude:s-o1", project=OTHER_PROJECT)
+        e3 = make_event(spec_a, event_id="ev-3", session_id="claude:s-o2", project=OTHER_PROJECT)
+        for event in (e1, e2, e3):
+            store.append(event)
+            store.append(make_verdict(event, verdict_id=f"vd-{event.event_id}"))
+            store.append(make_review(event, review_id=f"rv-{event.event_id}"))
+        store.append(make_decision(evidence_event_ids=("ev-1", "ev-2")))
+        data = build_report(store, now=NOW)
+        assert data.overall.completion.fraction == "1/1"
+        assert data.other.completion.fraction == "0/1"  # 그-외 단독으로 판정 가능하지만 근거가 걸쳐 있다
+        assert data.tool_development.completion.fraction == "0/0"
+
     def test_rich_store_has_an_empty_other_partition_rendered_as_unverified(self, store):
         """기존 픽스처는 전부 도구개발이다 — 그-외는 분모 0이라 미검증이지 성공이 아니다."""
         build_rich_store(store)

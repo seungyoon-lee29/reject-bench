@@ -40,9 +40,9 @@
 
 의존: 없음(E0과는 순서 제약). spec §3.
 
-- [x] 실패 테스트 먼저: 요구된 8종 전부 + 경계·음성 대조를 더해 28건. 신규 13건 red 확인 후 구현
+- [x] 실패 테스트 먼저: 요구된 8종 전부 + 경계·음성 대조를 더해 25건 신규(23→48). main 기록기 대비 17건 red 확인 후 구현(초기 기록 "28건/13건"은 실측 오류 — 2026-09-02 코드리뷰로 정정)
 - [x] 절단 되물림 구현: ① 공백류 되물림 → ② 민감값 세 종 가로지름 회피(고정점, **항상 적용**) → ③ 결과가 상한의 50% 미만이면 공백 되물림을 버리고 맹목 절단 + ②만 적용한 폴백 — `recorder.py`의 `_whitespace_cut`·`_retreat_past_sensitive`·`_cut_point`
-- [x] 상한(4000)과 하한(50%)을 명명 상수로 두고 하한을 상한의 비율로 계산 — `_MIN_REASON = int(_MAX_REASON * _MIN_REASON_RATIO)`. 값 회귀는 `test_truncation_bounds_are_one_ratio_apart`(파생식 되풀이가 아니라 세 값을 리터럴로 고정 — 식 단언은 하드코딩을 못 잡는다)
+- [x] 상한(4000)과 하한(50%)을 명명 상수로 두고 하한을 상한의 비율로 계산 — `_MIN_REASON = int(_MAX_REASON * _MIN_REASON_RATIO)`. 값을 리터럴로 되풀이해 고정하는 테스트는 두지 않는다(2026-09-02 코드리뷰·사용자 결정 — 경계 테스트가 `MAX`·`FLOOR`로 이미 값을 구속한다)
 - [x] 내부 폴백 확인: `_cut_point` 예외 주입 시 맹목 절단 + `recorded=True`, LossRecord 0건 — `test_truncation_failure_falls_back_to_blind_cut_and_still_records`
 - [x] **import 스모크**: 저장소 밖 cwd에서 `IMPORT OK` (편집 3회 각각 뒤)
 - [x] **추가(적대 검증 반영)**: 되물림의 상한 경계("가로지를 때만")를 고정하는 음성 대조 3건 — 없으면 사유 앞머리 홈 경로 하나로 본문이 0자가 되는 과잉 구현이 전량 green으로 지나간다. 돌연변이 8종(과잉 되물림 2·창 off-by-one·고정점 1회·되물림 제거·개행/탭 무시·하한 상수화) 전부 red 확인

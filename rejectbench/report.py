@@ -242,9 +242,8 @@ def _operation_metrics(
     review_confirmed = [
         event_id for event_id in op_ids if review_status(dataset, event_id) is Status.CONFIRMED
     ]
-    both_confirmed = [
-        event_id for event_id in verdict_confirmed if event_id in set(review_confirmed)
-    ]
+    review_set = set(review_confirmed)
+    both_confirmed = [event_id for event_id in verdict_confirmed if event_id in review_set]
 
     def _verdict(event_id: str) -> Verdict:
         return dataset.latest_verdict(event_id).verdict
@@ -506,7 +505,9 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
         overall=overall,
         tool_development=tool_development,
         other=other,
-        schema_versions_present=tuple(sorted({record.schema_version for record in load.records})),
+        schema_versions_present=tuple(
+            sorted({record.schema_version for record in load.records}, key=_version_key)
+        ),
     )
 
 
@@ -548,14 +549,19 @@ def _pending_text(count: int, elapsed: timedelta | None) -> str:
     return f"{count}건 (최장 경과 {_format_elapsed(elapsed)})"
 
 
+def _version_key(version: str) -> tuple:
+    """스키마 버전 정렬 키 — 문자열 정렬은 `7.10`을 `7.2` 앞에 둔다."""
+    return tuple(int(part) if part.isdigit() else part for part in version.split("."))
+
+
 def render_report(data: ReportData) -> str:
-    completion_ratio = Ratio(data.completion.numerator, data.completion.denominator)
     lines: list[str] = []
     add = lines.append
 
     def completion_of(metrics: OperationMetrics) -> Ratio:
         return Ratio(metrics.completion.numerator, metrics.completion.denominator)
 
+    completion_ratio = completion_of(data.overall)
     representative = completion_of(data.other)
 
     add("# Reject Bench 보고서")
@@ -605,6 +611,12 @@ def render_report(data: ReportData) -> str:
         f"**{REPRESENTATIVE_PARTITION_MARK}**다 — 자기차단만으로 성립을 선언하면 대표 주장이 "
         "자기생성 증거에 얹힌다 (docs/관찰-프로토콜.md 변경 기록 ⑤). 분모 0은 파티션 안에서도 "
         "미검증이다."
+    )
+    add(
+        "- 파티션 키의 한계: `project`는 훅 cwd의 basename이라 이 저장소의 하위 디렉터리·"
+        f"워크트리 cwd는 {PARTITION_OTHER}로 간다 — {PARTITION_OTHER} 대표값이 성립하면 근거 사건의 "
+        "`project`를 수동 확인한다 (003 spec §9.1). 결정 완료율은 근거 사건이 전부 그 파티션 "
+        "안에 있을 때만 결정으로 센다 (§9.6)."
     )
     add(
         "- 합으로 검산하지 않는다: 결정 완료율은 가드 단위라 한 가드가 전체에서는 판정 가능"

@@ -233,8 +233,9 @@ class OutputBoundary:
                 home = str(Path.home())
             except (RuntimeError, OSError):  # 홈을 알 수 없는 환경
                 home = ""
-        # 루트("/")를 홈으로 잡으면 모든 경로를 뭉갠다 — 그런 경우는 치환하지 않는다.
-        self._home = home if home and home not in ("/", "") else ""
+        # 끝 슬래시 정규화는 기록기 `_home_path`와 같은 규칙이다 — 루트("/")는
+        # 빈 문자열이 되어 치환하지 않는다(루트를 홈으로 잡으면 모든 경로를 뭉갠다).
+        self._home = home.rstrip("/")
         # 긴 것부터 매칭해야 접두사가 겹치는 식별자를 잘라먹지 않는다. 별칭 번호는
         # store 순서가 아니라 실제 응답 문자열의 첫 등장 순서에 발급한다.
         stored = tuple(
