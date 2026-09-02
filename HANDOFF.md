@@ -1,53 +1,45 @@
-# 핸드오프 — 003 E1 대기 (2026-09-01)
+# 핸드오프 — 003 주기 리뷰 반영 완료, PR 열림·새 사건 판정 대기 (2026-09-02)
 
 ## 지금 하던 것
 
-003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0**까지 끝냈다. 전부 main에 머지돼 있다. 다음은 **E1**이다.
+003 주기(운영 경험 개선 증분)의 **E0~E7 여덟 태스크가 전부 끝났고 코드리뷰 반영까지 마쳤다.** E0까지는 main에 머지돼 있고 나머지는 브랜치 `dryforge/003-e1-truncation-retreat`에 있다 — **사용자 결정으로 push·PR 완료**(PR 링크는 `gh pr view`). 무엇을 왜 바꿨는지는 `git log main..HEAD`의 본문이 정본이고, 체크박스는 `.dryforge/plan.md`(전부 `[x]`), 계약은 `.dryforge/{spec,plan,handoff}.md`다.
 
-계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0만 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
+**코드리뷰(2026-09-02)**: 앞선 리뷰 세션은 rate limit로 E1·E2(`73070dd`)까지만 단독 분석했다. 이 세션이 E3·E4·E7을 에이전트 둘로 재리뷰해 합쳤다. 반영: 절단점 바로 뒤가 공백이면 온전한 단위를 버리던 결함(spec §3.1 문면 개정), `HOME` 끝 슬래시 정규화·주입 env만 보는 `_home_path`(조회 경계도 같은 규칙), `_blind_truncate` 병합·도달 불가 분기 제거, 비율 리터럴 고정 테스트 삭제(사용자: 하드코딩 불필요), report의 O(n²)·중복 계산·버전 문자열 정렬, spec §9.1 파티션 키 한계·§9.6 파티션 안 근거 규칙 명문화 + 회귀 테스트 2건, 프로토콜 변경 기록 ⑨(rejudge 순서). 미반영(사용자 결정 — 다음 주기): 미결 8·9·10.
 
-**끝난 것**
+완료 게이트 상태: `uv run pytest` 532건 exit 0 · E3 임시 store 실기동 왕복 1건 · E0·E4 읽기 조회 캡처(`docs/배선-목록.md`) · 정본 3종 갱신 + `diff CLAUDE.md AGENTS.md` exit 0 · 운영 `data/` 읽기만 — **병합만 남았다.** 병합 뒤 `.dryforge/` 루트 3종을 `003/`로 아카이브한다(하드 게이트 9 — 그 전에는 루트).
 
-- **계약 개정** (PR #3) — 적대 리뷰 27건 반영, 태스크 5→8개. 개정지시와 다르게 쓴 4건은 `docs/운영경험개선-증분-결정기록.md`의 "개정 중 이 기록과 다르게 쓴 것" 절에 근거와 함께 있다.
-- **기준선 측정** (PR #4) — `docs/기준선-측정.md`가 정본. 도구 경로가 소요 −43%·연 파일 −54%지만 **조회 표면만으로는 6항목 중 5개가 상한**이다(행동 의도는 스키마에 없고, 명령 내용은 `<command omitted>`, 세션 별칭이 transcript 조인 키를 끊는다).
-- **판정 CLI 주입구** (PR #5) — `judge --model-settings JSON`(전체 교체). `AGENTS.md:42`가 처방한 경로.
-- **E0 배선 수정** (PR #6) — 전역 훅에 인라인 `PYTHONPATH` 접두. 저장소 밖 cwd에서 `ModuleNotFoundError` → `IMPORT OK`. 캡처는 `docs/배선-목록.md`의 "E0 배선 수정" 절.
-- **E0 실기동 검증** — 다른 저장소(`provenance`) cwd에서 래퍼를 직접 불러 가드 차단(exit 2)과 **임시 store 기록**까지 확인했다. `project: provenance`, `origin: test`(`explicit_flag`). 운영 store 무접촉.
-- **검토 큐 2건** — 둘 다 `unnecessary` 기록. 강등하지 않았다(진짜 operation 사건이라 강등은 데이터 세탁이고 D2와 충돌).
-- **판정 기본값 정합성** — `DEFAULT_MODEL_ID`를 `gpt-4.1-mini`로. gpt-5 계열이 `temperature` 고정을 거부해 기본값끼리 배타적이었다. 결정성(`AGENTS.md:57`)을 지키는 쪽을 택했고 상수 수준 회귀 테스트를 걸었다.
+**git 밖 상태(E0·E4가 만든 것)**: 사용자 전역 `~/.claude/settings.json`은 래퍼 배선에 `PYTHONPATH` 접두가 있고 `collect.py` 훅 4건이 빠진 상태(훅 18건). 스냅샷 `~/.claude/settings.json.rejectbench-pre-e0-20260901`·`…pre-e4-20260902`가 유일한 되돌림 수단이라 남긴다. 사용자 소유 `.claude/settings.json.bak-*`·`.codex/config.toml.bak-*`는 비추적이며 건드리지 않는다.
 
-**현재 지표** (`uv run python -m rejectbench.cli report`)
+**현재 표본** (2026-09-02 14:30 KST 실측): `guard_event` 8건 = operation 7(전부 `block-dangerous-git`·`project: reject-bench`, 서로 다른 세션 3개) + test 1. **그-외 파티션 0건.** 보고서 대표값(그-외)은 `미검증`, 전체는 0/1. 스키마 헤더 `기록기 현행 7.1 · 스냅샷 실존 7.0, 7.1`.
 
-- 대표 지표(증거 기반 결정 완료율): **미검증** — 아래 미결 1
-- 정책 불일치율 0/1 · 사용자 불필요 차단율 **2/2(100%)** · LLM-사용자 불일치율 1/1(전부 "정책상 옳은 차단 + 사용자 불필요")
-- PolicyVerdict 보류(`insufficient_context`) 1건 · LossRecord 2건(`verdict_failure` — 판정 1차 실패의 흔적, 정상)
+**새 사건 미처리 1건**: `ev-527f00a4…`, 2026-09-02 02:35 UTC, 다른 Claude 세션 `claude:55b5d4a…`의 heredoc 자기차단(선례 6건과 같은 오탐 구조). 7.1·`session_id_format: conforming`으로 기록된 첫 레코드 — E2가 전역 훅에서 실제로 돈 증거. 판정(과금)·검토(운영자 판단)라 손대지 않았다.
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**E1의 첫 체크박스 — 실패 테스트를 먼저 쓴다.** `tests/test_recorder.py`에 절단 픽스처 8종을 추가한다: 홈 경로 가로지름 / 복합 세션 ID 가로지름 / 병리 입력(공백 없음) + 원본 세션 ID 가로지름 / **공백을 품은 민감값 가로지름** / **공백이 앞쪽 한 곳뿐인 긴 입력(하한 폴백)** / 공백 없는 병리 일반 / 정확히 4000자 / 짧은 입력 무변경.
-
-red 확인 후 `rejectbench/recorder.py`를 고친다(현행 절단은 `:245-246`). 규칙은 `.dryforge/spec.md` §3 — ① 공백 되물림 → ② 민감값 세 종 가로지름 회피(**항상 적용**, 고정점) → ③ 결과가 상한의 50% 미만이면 공백 되물림을 버리고 폴백. 하한은 절대값이 아니라 **상한에 대한 비율**로 둔다. 개정 전 계획의 "민감값 검사는 공백이 없을 때의 보조 규칙"은 **폐기됐다**.
-
-그 뒤 E2 → … → E7.
+**PR 병합 뒤 `.dryforge/` 루트 3종을 `003/`로 아카이브한다**(하드 게이트 9). 새 사건 `ev-527f00a4…`의 판정·검토는 사용자가 "나중에"로 결정 — 실행할 때는 순서 규칙(프로토콜 ⑨: 기본 모델이 마지막, 이번은 기본 모델 1회만)대로 `set -a; . ./.env; set +a` → `judge --approve-billing` → `review record --utility unnecessary …`(note에 위험 패턴 인용 금지). 그 뒤는 관측 대기: 2026-09-26경 4주 종료 판정까지 그-외 자연 발동이 없으면 "운영 빈도 미검증"으로 종료(D12). 강제 발동 금지. O2에서 그-외 사건이 있으면 `project` 값을 수동 확인(spec §9.1 한계).
 
 ## 미결 결정
 
-1. **판정 가능 가드가 아직 0이다.** 운영 사건 2건이 **같은 세션**(`claude:90d3bc65-…`)이라 판정 가능 세션 수가 1 — 종료 조건의 "서로 다른 operation 세션 2개 이상"에 미달한다. 4주 종료 판정은 2026-09-26경. E0으로 사건원이 모든 저장소로 넓어졌으니 이제 자연 발동을 기다린다. **강제 발동은 표본 규율이 금지한다.**
-2. **판정기 신뢰도** — 교정 8/8을 통과한 두 모델이 같은 사건에 다른 답을 냈다(`correct_block` vs `insufficient_context`). 기록은 `docs/기준선-측정.md`의 "부록 — 판정기 안정성 관찰". 운영 사건 2건 중 1건이 `insufficient_context`인데 `기획-입력.md:70`은 이 값이 지배적이면 "캡처 설계 실패"로 규정한다. **n=2라 아직 비율을 말할 단계가 아니다 — 감시만 한다.**
-3. **가드 자체의 수명주기 결정** — 오탐 구조(명령 문자열 전문 매칭, 인용·heredoc 무구분)는 O2의 `keep`/`modify` 재료다. **지금 고치지 말 것** — 관측 중 가드를 바꾸면 기구 변경이 또 하나 는다.
-4. **MCP 서버 전역 등록** — 다음 주기. E0이 교차 저장소 사건을 실제로 만든 뒤 판단한다.
+1. **종료 조건은 그-외 파티션으로 판정한다**(결정기록 D12, 프로토콜 변경 기록 ⑤). 전체 지표로는 `block-dangerous-git`이 이미 2세션을 넘었지만 전부 도구개발 자기차단이다. 그-외 자연 발동이 없으면 미검증으로 종료.
+2. **판정기 신뢰도** — 두 모델(gpt-4.1-mini / gpt-5-mini) 대조 6건 중 5건 불일치(83%). 순서 규칙은 결정됨(프로토콜 ⑨: 기본 모델 마지막, 소급 없음, 추가 임계 선등록 없음). 남은 것은 O2에서 "판정기가 증거로 쓸 만한가"의 정성 판단뿐. 관찰 기록은 `docs/기준선-측정.md` 부록.
+3. **가드 수명주기 결정** — 오탐 구조(명령 문자열 전문 매칭, heredoc 무구분)는 O2의 `keep`/`modify` 재료. 관측 중 가드를 고치지 않는다.
+4. **MCP 서버 전역 등록** — 다음 주기. 그-외 사건이 0건이라 판단 재료가 아직 없다.
 5. **외부 검증(X1)** — O2 뒤에만.
+6. **판정 사유 절단**(`judge.py`의 `PolicyVerdict.reason`)은 맹목 그대로 — 계약 문면만 한정했고(D11) 코드는 다음 주기. 처방: recorder와 같은 되물림을 공용 함수로, 판정 번들은 건드리지 않는다(`context_bundle_hash` 불연속 회피).
+7. **판정 번들 순수성이 자유 텍스트(`reason`·`target_path`)로 우회된다** — 홈 경로·세션 ID가 외부 판정 API로 나간다. 이번 주기 변경 없음, 다음 주기 입력.
+8. **짧은 비준수 세션 ID가 needle이 되면 사유 본문이 0자까지 준다**(`recorder._sensitive_values`, spec §3.3이 허용). Claude Code는 UUID만 주므로 합성·타 실행기 한정. 다음 주기: `session_id_format`이 conforming일 때만 원본을 needle로 삼는 §3.2 개정 검토(E3 규칙과 일관).
+9. **자리표시 복합값 `claude:unknown`이 여전히 needle**(계약 문면대로, docstring 근거와만 어긋남) · **별칭화가 대문자 UUID를 못 가림**(Claude Code는 소문자만 줌). 둘 다 다음 주기.
+10. **파티션 키가 cwd basename** — spec §9.1 한계로 명문화했고 기록기 변경(저장소 식별)은 다음 주기.
 
 ## 함정
 
-- **전역 가드 자기차단이 곧 운영 사건이다.** 위험 패턴 텍스트를 heredoc/echo로 쓰면 전역 가드가 **명령 문자열 전문**을 매칭해 차단하고, 그 발동이 실제 `operation` 사건으로 기록된다. 파일 도구(Write/Edit)로 쓸 것.
-- **CLI 인자 값도 명령 문자열이다.** `review record --note`·`review demote --reason`·`decide --rationale`·`judge --rejudge-reason`에 위험 패턴을 인용하면 그 명령 자체가 차단된다. 풀어서 쓸 것.
-- **시험·강제 발동은 `REJECTBENCH_TEST_SESSION` 아래에서만.** 기록 대상 store는 `REJECTBENCH_STORE`로 임시 경로에 돌린다(기록기 전용 env — 조회 서버에는 통하지 않는다). E0 검증이 쓴 방식: 합성 페이로드를 파일로 쓰고 래퍼를 직접 호출.
-- **E0 이후 작업 트리 코드가 전역에서 해석된다.** `pyproject.toml:15`가 `package = false`라 훅은 설치본이 아니라 작업 트리를 import한다. E1·E2 편집 중 중간 저장 상태가 import 불가면 **모든 저장소의 모든 Bash 호출**에서 가드가 죽는다 — 관측창 한복판에서. **체크박스마다 `python -c "import rejectbench.wrapper"` 스모크를 돌릴 것.**
-- **판정은 `.env`를 자동으로 읽지 않는다.** 코드가 `os.environ`만 본다 — `set -a; . ./.env; set +a`로 주입한다. 키 값을 명령줄·파일·로그·레코드에 남기지 말 것.
-- **판정 기본값을 gpt-5 계열로 되돌리지 말 것.** `temperature` 고정을 거부해 판정이 전량 실패한다. 되돌리면 `tests/test_judge.py::TestDefaultConfigCoherence`가 걸린다. 최신 모델이 필요하면 `--model`과 `--model-settings '{}'`를 함께 주되 그 판정은 비결정적이다.
-- **테스트는 임시 store만.** 운영 `data/`에 닿으면 conftest autouse 게이트가 하드 실패시킨다. 네트워크 금지.
-- **전역 설정 편집은 스냅샷·롤백을 거친다**(`.dryforge/handoff.md` 하드 게이트 5). E4가 아직 남았다 — E0이 만든 `~/.claude/settings.json.rejectbench-pre-e0-20260901`은 E4까지 남긴다.
-- **`.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업.** 스테이징·수정·삭제 금지.
-- **조회 금지는 해제됐다**(기준선 측정 완료). 다만 E3 검증·실기동은 임시 store로만 — 완성된 기동 명령 한 줄이 `.dryforge/handoff.md` 하드 게이트 3에 있다.
-- `.dryforge/`의 완료 주기는 번호 폴더(`001/`, `002/`), 진행 중 주기만 루트. 하드 게이트 9에 따라 루트 3종은 git 추적 대상이다.
+- **전역 가드 자기차단이 곧 운영 사건이다.** 위험 패턴 텍스트를 heredoc/echo/CLI 인자(`--note`·`--reason`·`--rationale`·`--rejudge-reason`)로 쓰면 명령 문자열 전문 매칭으로 차단되고 operation 사건으로 기록된다. 파일 도구로 쓸 것. 새 사건이 정확히 이 경로였다.
+- **작업 트리 코드가 모든 저장소의 Bash 훅에서 해석된다**(`package = false` + `PYTHONPATH` 접두). `records`·`recorder`·`wrapper` 편집 중 import 불가 상태면 전역 가드가 죽는다 — 편집마다 저장소 밖 cwd에서 `import rejectbench.wrapper` 스모크.
+- **시험·강제 발동은 `REJECTBENCH_TEST_SESSION` 아래에서만**, store는 `REJECTBENCH_STORE`로 임시 경로에. 조회 서버는 그 env를 안 읽는다 — 임시 store는 `--store <경로>`로 별도 기동(`.dryforge/handoff.md` 하드 게이트 3의 명령 한 줄).
+- **판정은 `.env`를 자동으로 읽지 않는다** — 셸 주입. 키 값을 어디에도 남기지 말 것. **기본 모델을 gpt-5 계열로 되돌리지 말 것**(temperature 거부로 전량 실패, `TestDefaultConfigCoherence`가 막는다).
+- **테스트는 임시 store만**(conftest 게이트), 네트워크 금지. `pytest -q`는 addopts의 `-q`와 겹쳐 요약 줄이 사라진다 — 건수는 `uv run pytest | tail -1`.
+- **E3 자격은 UUID 문법이지 E2 술어(8~128자)가 아니다.** 바꾸면 날짜꼴·hex 조각이 준수가 되어 타임스탬프·해시·event_id가 뭉개진다. 분해는 `records.split_session_id` 하나. 자리표시 `unknown`은 needle이 아니다.
+- **미등록 가드 오류는 호출자 입력을 되비추지 않는다** — 오류 경로에서 별칭 치환을 보려면 타입 오류(목록형 `guard_id`)를 쓴다.
+- **되물림·형식 진단의 폴백은 `assemble_event` 안에서 닫힌다.** 밖으로 새면 사건이 LossRecord로 강등된다. `session_id_format`은 진단값이지 게이트가 아니다.
+- **v0 수집기는 되살리지 않는다**(사용자 결정). `PermissionRequest`·`PermissionDenied` 전역 관측 종료는 프로토콜 변경 기록 ②에 있다.
+- **관찰-프로토콜 본문은 append만**, 변경 기록이 본문을 이긴다(⑥).

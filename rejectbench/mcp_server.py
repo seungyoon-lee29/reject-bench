@@ -45,14 +45,26 @@ MCP SDK import는 이 모듈 안에만 있다.
 
 - 홈 절대 경로 접두사를 `~`로 치환한다. 꼬리는 보존한다 — `target_path`는 판단에
   필요한 값이라 생략이 아니라 치환이어야 한다.
-- 값 전체·완전한 토큰으로 나타난 세션 식별자 원문을 순번 별칭(`S1`, `S2`, …)으로
-  치환한다. 별칭은 한 응답 안에서만 유효하고, 별칭↔원문 표는 **어디에도 저장하지
-  않는다** (호출이 끝나면 메모리에서 사라진다).
+- 세션 식별자 원문을 순번 별칭(`S1`, `S2`, …)으로 치환한다. 별칭은 한 응답 안에서만
+  유효하고, 별칭↔원문 표는 **어디에도 저장하지 않는다** (호출이 끝나면 메모리에서
+  사라진다).
 
-스키마가 세션 ID 문법이나 문자열 출처를 제한하지 않아, 단어에 붙은 동일 부분문자열은
-실제 세션 언급인지 일반 텍스트인지 구별할 수 없다. 증거 값을 훼손하지 않도록 그 경우는
-치환하지 않는다. 임의 부분문자열까지 막으려면 적재 시점 문법 또는 typed provenance가
-먼저 필요하다.
+세션 식별자는 **출력 시점에, 값의 모양으로** 두 부류로 나뉜다(003 spec §5 — 저장
+필드와 무관하므로 과거 레코드도 자동 포함된다).
+
+- **준수 복합값** — `records.split_session_id`로 분해한 원본 부분이 **UUID 문법**을
+  충족하면, 복합값과 원본 부분 둘 다 **단어-속-포함(임의 부분문자열)**까지 같은 별칭으로
+  치환한다. 원본 ID는 transcript 경로처럼 복합 접두 없이 사유 텍스트에 나타날 수 있고,
+  "원문 0회"는 식별자 원문 자체를 뜻하기 때문이다. 이 부류에 한해 응답 원문 0회를
+  보장한다. 자격은 E2의 진단 술어(8~128자)가 **아니다** — 그 술어로는 `2026-09-01` 같은
+  날짜꼴이 준수가 되어 무경계 치환이 타임스탬프·해시·event_id를 뭉갠다.
+- **그 외** — 자리표시(`harness:unknown`), UUID 문법 비충족 값, `:` 없는 값: 값 전체·
+  완전한 토큰 매칭을 유지한다. `unknown` 같은 일반 단어와 `e`·`-` 같은 짧은 값이 일반
+  텍스트·날짜·경로를 훼손하지 않게 하기 위함이다. 이 부류의 원본 부분 단독 등장은
+  별칭 대상이 아니며 원문으로 나갈 수 있다 — 의도된 한계다.
+
+완전한 ID가 아닌 **조각**(과거 절단이 남겼을 수 있는 파편)은 어느 부류에서도 매칭
+대상이 아니다. E1이 적재 시점에 이 사건의 민감값 세 종에 한해 새 파편 생성을 막는다.
 
 비밀 제거는 v1 적재 시점 규칙이 이미 담당한다 — 이 경계는 그 위에 홈 경로와 세션
 식별자를 더 막을 뿐 적재 시점 제거를 대체하지 않는다.
@@ -103,7 +115,13 @@ from rejectbench.decision import (
     check_enforcement,
 )
 from rejectbench.judge import JudgeCalibration, find_calibration, load_calibrations
-from rejectbench.records import CaptureStatus, GuardSpec, PolicyVerdict, UtilityReview
+from rejectbench.records import (
+    CaptureStatus,
+    GuardSpec,
+    PolicyVerdict,
+    UtilityReview,
+    split_session_id,
+)
 from rejectbench.report import generate_report
 from rejectbench.store import AppendStore, LoadResult, production_root
 
@@ -183,12 +201,28 @@ ALIAS_PREFIX = "S"
 #: `fail(echo=...)`의 "메아리 없음" 표식 — `None`도 되돌려 줄 값이라 쓸 수 없다.
 _NO_ECHO = object()
 
+#: E3 가림 자격 — 원본 부분의 **UUID 문법** (8-4-4-4-12 hex). E2의 진단 술어
+#: (`records.SESSION_ID_RAW_RULE`, 8~128자)와는 별개다: 그 술어로 자격을 정하면 날짜꼴·
+#: hex 조각이 준수가 되어 무경계 치환이 타임스탬프·해시·event_id를 뭉갠다(003 spec §5).
+#: 여기서 탈락한 값은 보호를 잃는 게 아니라 "그 외" 부류의 토큰 경계 매칭으로 떨어진다.
+_UUID_SYNTAX = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _uuid_raw_part(session_id: str) -> str | None:
+    """준수 복합값이면 그 원본 부분, 아니면 None. 분해는 E2와 같은 함수다."""
+    _, raw = split_session_id(session_id)
+    if raw is not None and _UUID_SYNTAX.fullmatch(raw):
+        return raw
+    return None
+
 
 # --- 출력 경계 ----------------------------------------------------------------
 
 
 class OutputBoundary:
-    """응답 직렬화 직전의 단일 정화 경계 (spec §5).
+    """응답 직렬화 직전의 단일 정화 경계 (002 spec §5, 003 spec §5).
 
     호출마다 새로 만든다. 세션 별칭 표는 이 객체의 수명(=한 호출) 안에만 있다.
     """
@@ -199,20 +233,33 @@ class OutputBoundary:
                 home = str(Path.home())
             except (RuntimeError, OSError):  # 홈을 알 수 없는 환경
                 home = ""
-        # 루트("/")를 홈으로 잡으면 모든 경로를 뭉갠다 — 그런 경우는 치환하지 않는다.
-        self._home = home if home and home not in ("/", "") else ""
+        # 끝 슬래시 정규화는 기록기 `_home_path`와 같은 규칙이다 — 루트("/")는
+        # 빈 문자열이 되어 치환하지 않는다(루트를 홈으로 잡으면 모든 경로를 뭉갠다).
+        self._home = home.rstrip("/")
         # 긴 것부터 매칭해야 접두사가 겹치는 식별자를 잘라먹지 않는다. 별칭 번호는
         # store 순서가 아니라 실제 응답 문자열의 첫 등장 순서에 발급한다.
-        self._session_ids = tuple(
+        stored = tuple(
             sorted(dict.fromkeys(sid for sid in session_ids if sid), key=len, reverse=True)
         )
+        # needle → 별칭의 정본이 되는 저장 세션 ID. 준수 복합값은 원본 부분도 needle이고
+        # **같은 정본**을 가리킨다(동일 별칭). 서로 다른 준수 복합값이 원본을 공유하면
+        # 먼저 등록된(긴) 쪽의 별칭으로 — 가려짐은 보장하고 어느 별칭인지는 보장하지 않는다.
+        self._needles: dict[str, str] = {}
+        # 단어-속-포함까지 치환하는 needle. 그 외는 완전한 토큰일 때만 찾는다 — 구두점
+        # 하나(`-`)도 유효한 저장값이라 무경계 치환을 전부에 허용하면 날짜·경로·가드 ID까지
+        # 훼손된다.
+        unbounded: set[str] = set()
+        for sid in stored:
+            self._needles.setdefault(sid, sid)
+            raw = _uuid_raw_part(sid)
+            if raw is not None:
+                self._needles.setdefault(raw, sid)
+                unbounded.update((sid, raw))
         self._aliases: dict[str, str] = {}
         # 한 번에 훑는 치환기 — 별칭이 다시 치환 대상이 되는 것을 원천 차단한다.
-        # 모든 식별자는 완전한 토큰일 때만 찾는다. 구두점 하나(`-`)도 유효한 저장값이라
-        # 무경계 부분문자열 치환을 허용하면 날짜·경로·가드 ID까지 훼손된다.
         patterns = [
-            rf"(?<!\w){re.escape(sid)}(?!\w)"
-            for sid in self._session_ids
+            re.escape(needle) if needle in unbounded else rf"(?<!\w){re.escape(needle)}(?!\w)"
+            for needle in sorted(self._needles, key=len, reverse=True)
         ]
         self._pattern = (
             re.compile("|".join(f"(?:{pattern})" for pattern in patterns)) if patterns else None
@@ -225,15 +272,18 @@ class OutputBoundary:
             self._aliases[session_id] = alias
         return alias
 
+    def _alias_for_needle(self, needle: str) -> str:
+        return self._alias_for(self._needles[needle])
+
     def text(self, value: str) -> str:
         # 세션 식별자가 홈 경로를 품을 수 있으므로 별칭화가 홈 치환보다 먼저다.
-        if value in self._session_ids:
-            return self._alias_for(value)
+        if value in self._needles:
+            return self._alias_for_needle(value)
         out = value
         # 원본을 왼쪽부터 한 번만 훑는다 — 별칭 발급 순서가 곧 첫 등장 순서이고,
         # 이미 치환된 자리는 다시 보지 않으므로 같은 문자열이 두 번 바뀌지 않는다.
         if self._pattern is not None:
-            out = self._pattern.sub(lambda match: self._alias_for(match.group(0)), out)
+            out = self._pattern.sub(lambda match: self._alias_for_needle(match.group(0)), out)
         return out.replace(self._home, "~") if self._home else out
 
     def one_line(self, value: str) -> str:

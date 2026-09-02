@@ -104,27 +104,40 @@ def tool_input_schemas(server) -> dict[str, dict]:
     return asyncio.run(run())
 
 
-def stdio_tool_input_schemas(store_root: Path, cwd: Path) -> dict[str, dict]:
-    """stdio 하위 프로세스로 실제 서버를 띄워 받은 `tools/list` 입력 스키마.
-
-    인프로세스 클라이언트는 같은 파이썬 객체를 보므로, 직렬화를 거친 실제 왕복에서도
-    같은 계약이 실리는지는 따로 확인해야 한다.
-    """
+def stdio_params(store_root: Path, cwd: Path) -> StdioServerParameters:
     repo_root = Path(__file__).resolve().parents[1]
-    params = StdioServerParameters(
+    return StdioServerParameters(
         command=sys.executable,
         args=["-m", "rejectbench.mcp_server", "--store", str(store_root)],
         env={**os.environ, "PYTHONPATH": str(repo_root)},
         cwd=str(cwd),
     )
 
+
+def stdio_tool_input_schemas(store_root: Path, cwd: Path) -> dict[str, dict]:
+    """stdio 하위 프로세스로 실제 서버를 띄워 받은 `tools/list` 입력 스키마.
+
+    인프로세스 클라이언트는 같은 파이썬 객체를 보므로, 직렬화를 거친 실제 왕복에서도
+    같은 계약이 실리는지는 따로 확인해야 한다.
+    """
+
     async def run():
-        async with Client(params, read_timeout_seconds=60) as client:
+        async with Client(stdio_params(store_root, cwd), read_timeout_seconds=60) as client:
             return {
                 tool.name: tool.input_schema for tool in (await client.list_tools()).tools
             }
 
     # 하위 프로세스가 남지 않도록 상한을 건다 — 클라이언트가 종료 시 프로세스를 거둔다.
+    return asyncio.run(asyncio.wait_for(run(), timeout=120))
+
+
+def stdio_call_tool(store_root: Path, cwd: Path, name: str, arguments: dict | None = None):
+    """stdio 하위 프로세스로 실제 서버를 띄워 도구 하나를 호출한 결과."""
+
+    async def run():
+        async with Client(stdio_params(store_root, cwd), read_timeout_seconds=60) as client:
+            return await client.call_tool(name, arguments or {})
+
     return asyncio.run(asyncio.wait_for(run(), timeout=120))
 
 
@@ -796,6 +809,257 @@ def test_sanitize_fails_closed_on_an_unrecognized_type(tmp_path):
     boundary = OutputBoundary(session_ids=(), home="/nonexistent-home")
     with pytest.raises(TypeError):
         boundary.sanitize({"when": datetime(2026, 1, 1, tzinfo=timezone.utc)})
+
+
+# --- 003 §5 (E3) 가림 확장: 준수 복합값은 단어-속-포함까지 원문 0회 ------------------
+#
+# 자격은 §4 술어(8~128자)가 아니라 **UUID 문법**이다. 준수 부류는 복합값과 원본 부분을
+# 무경계 부분문자열로 같은 별칭에 매핑하고, 그 외(자리표시·비준수·`:` 없는 값)는 002의
+# 토큰 경계 매칭을 유지한다. 깨끗한 픽스처의 깨끗한 출력은 증거가 아니다 — 원문을
+# 일반 단어 속에 실제로 파묻는다.
+
+UUID_A = "0f3b2c9e-4d5a-4b6c-8d7e-9f0a1b2c3d4e"
+UUID_B = "7a1c3e5f-9b8d-4c2a-a6e4-0d1f2b3c4d5e"
+CONFORMING_A = f"claude:{UUID_A}"
+CONFORMING_B = f"codex:{UUID_B}"
+PLACEHOLDER = "claude:unknown"
+
+
+def buried_store(root: Path) -> AppendStore:
+    """준수 ID를 단어 속에 파묻고, 자리표시·비준수 ID 주변에 일반 텍스트를 둔 store."""
+    store = AppendStore(root)
+    spec = make_spec(
+        guard_id="buried-guard",
+        version=1,
+        purpose=f"목적 속 파묻힘 pre{UUID_A}post 와 복합 x{CONFORMING_A}y",
+        policy=f"정책 unknown 상태와 unknownish 단어, 그리고 {CONFORMING_A}",
+        created_at=ts(0),
+    )
+    store.append(spec)
+    ev_a = make_event(
+        spec,
+        event_id="ev-a",
+        session_id=CONFORMING_A,
+        occurred_at=ts(10),
+        reason=(
+            f"transcript ~/.claude/projects/x/{UUID_A}.jsonl 을 열었다; "
+            f"glued=foo{UUID_A}bar; composite=<{CONFORMING_A}>; token {UUID_A} end"
+        ),
+    )
+    ev_b = make_event(
+        spec,
+        event_id="ev-b",
+        session_id=CONFORMING_B,
+        occurred_at=ts(20),
+        reason=f"other session inline: ID{UUID_B}ID and whole {CONFORMING_B}",
+    )
+    ev_p = make_event(
+        spec,
+        event_id="ev-p",
+        session_id=PLACEHOLDER,
+        occurred_at=ts(30),
+        origin=Origin.UNKNOWN,
+        origin_evidence=OriginEvidence.NO_CONTEXT,
+        capture_status=CaptureStatus.PARTIAL,
+        reason="unknown state; unknownish; the unknown remains unknown.",
+    )
+    for event in (ev_a, ev_b, ev_p):
+        store.append(event)
+    store.append(
+        make_verdict(ev_a, verdict_id="vd-a", reason=f"판정 사유 속 abc{UUID_A}def 등장")
+    )
+    store.append(make_review(ev_a, review_id="rv-a", note=f"메모 속 ({UUID_A}) 등장"))
+    store.append(
+        make_decision(
+            guard_id="buried-guard",
+            decision_id="dc-a",
+            evidence_event_ids=("ev-a", "ev-b"),
+            rationale=f"근거: session={CONFORMING_A}, raw={UUID_A}, 그리고 {CONFORMING_B}.",
+        )
+    )
+    return store
+
+
+def assert_buried_fixture_really_planted(store: AppendStore) -> None:
+    raw = store.path.read_text(encoding="utf-8")
+    assert f"foo{UUID_A}bar" in raw
+    assert f"pre{UUID_A}post" in raw
+    assert f"ID{UUID_B}ID" in raw
+    assert "unknownish" in raw
+
+
+def test_buried_uuid_never_appears_in_any_response(tmp_path):
+    """복합값·원본 부분 단독 등장·단어-속-포함 전부 0회 — 도구 3종 + 오류 경로."""
+    store = buried_store(tmp_path / "store")
+    assert_buried_fixture_really_planted(store)
+    server = build_server(store, now=NOW)
+
+    responses = {
+        "list": whole_result(call_tool(server, LIST_GUARDS_TOOL)),
+        "evidence": whole_result(call_tool(server, GUARD_EVIDENCE_TOOL, {"guard_id": "buried-guard"})),
+        "report": whole_result(call_tool(server, GET_REPORT_TOOL)),
+    }
+    # 오류 경로는 **메아리가 나가는** 것으로 고른다 — 미등록 가드 오류는 002 계약대로
+    # 호출자 입력을 되비추지 않아 파묻힌 ID의 치환을 관찰할 수 없다.
+    error = call_tool(
+        server, GUARD_EVIDENCE_TOOL, {"guard_id": [f"pre{UUID_A}post-{CONFORMING_B}x"]}
+    )
+    assert error.is_error is True
+    responses["error"] = whole_result(error)
+
+    for label, text in responses.items():
+        assert UUID_A not in text, f"{label}: 원본 UUID A가 노출됐다"
+        assert UUID_B not in text, f"{label}: 원본 UUID B가 노출됐다"
+        assert CONFORMING_A not in text, label
+        assert CONFORMING_B not in text, label
+
+    evidence = json.loads(result_text(call_tool(server, GUARD_EVIDENCE_TOOL, {"guard_id": "buried-guard"})))
+    rows = {row["event_id"]: row for row in evidence["events"]}
+    alias_a = rows["ev-a"]["session"]
+    alias_b = rows["ev-b"]["session"]
+    assert alias_a != alias_b
+    # 복합값과 원본 부분은 **같은 별칭**이고, 파묻힌 자리는 주변 글자를 보존한 채 바뀐다.
+    assert f"foo{alias_a}bar" in rows["ev-a"]["reason"]
+    assert f"composite=<{alias_a}>" in rows["ev-a"]["reason"]
+    assert f"/{alias_a}.jsonl" in rows["ev-a"]["reason"]
+    assert f"ID{alias_b}ID" in rows["ev-b"]["reason"]
+    assert f"abc{alias_a}def" in rows["ev-a"]["policy_verdict"]["reason"]
+    assert f"({alias_a})" in rows["ev-a"]["utility_review"]["note"]
+    assert f"pre{alias_a}post" in evidence["context"]["purpose"]
+    assert f"session={alias_a}, raw={alias_a}" in evidence["decisions"][0]["rationale"]
+    # 오류 응답은 호출마다 새 별칭 표다 — 메아리 안 첫 등장 순으로 S1(원본 A)·S2(복합 B).
+    assert "preS1post-S2x" in result_text(error)
+
+
+def test_placeholder_and_nonconforming_ids_keep_token_boundary_matching(tmp_path):
+    """그 외 부류(자리표시·비준수·`:` 없는 값)는 일반 텍스트를 훼손하지 않는다."""
+    store = buried_store(tmp_path / "store")
+    evidence = json.loads(render_guard_evidence(store, "buried-guard"))
+    rows = {row["event_id"]: row for row in evidence["events"]}
+    assert rows["ev-p"]["session"] not in ("", PLACEHOLDER)  # 값 전체는 별칭
+    # 자리표시의 원본 부분 `unknown`은 needle이 아니다 — 일반 단어가 살아남는다.
+    assert rows["ev-p"]["reason"] == "unknown state; unknownish; the unknown remains unknown."
+    assert "unknown 상태와 unknownish 단어" in evidence["context"]["policy"]
+
+
+def test_nonconforming_ids_glued_to_words_stay_verbatim_as_in_002(tmp_path):
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    spec = make_spec(guard_id="guard-a", version=1, created_at=ts(0))
+    store.append(spec)
+    short = "claude:sess-1"  # UUID 문법 비충족 → 토큰 경계 유지
+    store.append(
+        make_event(
+            spec, session_id=short, reason=f"token {short}; glued=prefix{short}suffix", occurred_at=ts(30)
+        )
+    )
+    payload = json.loads(render_guard_evidence(store, "guard-a"))
+    assert payload["events"][0]["session"] == "S1"
+    assert payload["events"][0]["reason"] == f"token S1; glued=prefix{short}suffix"
+
+
+def test_rule_shaped_but_non_uuid_ids_do_not_rewrite_timestamps_hashes_or_event_ids(tmp_path):
+    """§4 술어(8~128, `[A-Za-z0-9_-]`)로 자격을 정하면 깨지고, UUID 문법이면 지나가는 픽스처.
+
+    날짜꼴·hex 조각·event_id 조각이 세션 ID로 저장돼 있어도 `occurred_at`·`content_hash`·
+    `event_id`에 글자로 파묻힌 등장은 바뀌지 않는다 — 세션 필드 자체는 값 전체라 별칭이다.
+    """
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    spec = make_spec(guard_id="guard-a", version=1, created_at=ts(0))
+    store.append(spec)
+    hex_fragment = spec.content_hash[len("sha256:") + 10 : len("sha256:") + 22]  # 12자 hex
+    assert len(hex_fragment) == 12
+    date_like = ts(10).date().isoformat()  # 2026-08-01 — 10자, §4 술어는 준수로 본다
+    event_id = "evplanted0001x"
+    ids = [f"claude:{date_like}", f"claude:{hex_fragment}", "claude:planted0001"]
+    for index, session_id in enumerate(ids):
+        store.append(
+            make_event(
+                spec,
+                event_id=event_id if index == 2 else f"ev-{index}",
+                session_id=session_id,
+                occurred_at=ts(10 + index),
+            )
+        )
+    payload = json.loads(render_guard_evidence(store, "guard-a"))
+    rows = {row["event_id"]: row for row in payload["events"]}
+    assert set(rows) == {"ev-0", "ev-1", event_id}
+    assert rows["ev-0"]["occurred_at"] == ts(10).isoformat()
+    assert payload["context"]["content_hash"] == spec.content_hash
+    assert sorted(row["session"] for row in payload["events"]) == ["S1", "S2", "S3"]
+    blob = json.dumps(payload, ensure_ascii=False)
+    for session_id in ids:
+        assert session_id not in blob
+
+
+def test_two_conforming_ids_sharing_a_raw_part_still_hide_the_raw_part(tmp_path):
+    """코너 규정: 원본 단독 등장은 둘 중 하나의 별칭으로 — 가려짐만 보장한다."""
+    root = tmp_path / "store"
+    store = AppendStore(root)
+    spec = make_spec(guard_id="guard-a", version=1, created_at=ts(0))
+    store.append(spec)
+    store.append(
+        make_event(spec, event_id="ev-1", session_id=f"claude:{UUID_A}", occurred_at=ts(10))
+    )
+    store.append(
+        make_event(
+            spec,
+            event_id="ev-2",
+            session_id=f"codex:{UUID_A}",
+            occurred_at=ts(20),
+            reason=f"raw alone: {UUID_A} and glued x{UUID_A}y",
+        )
+    )
+    payload = json.loads(render_guard_evidence(store, "guard-a"))
+    blob = json.dumps(payload, ensure_ascii=False)
+    assert UUID_A not in blob
+    aliases = {row["event_id"]: row["session"] for row in payload["events"]}
+    assert aliases["ev-1"] != aliases["ev-2"]
+    reason = payload["events"][1]["reason"]
+    assert reason in {
+        f"raw alone: {alias} and glued x{alias}y" for alias in aliases.values()
+    }
+
+
+def test_boundary_treats_uuid_raw_part_alone_as_the_same_session(tmp_path):
+    boundary = OutputBoundary(session_ids=(CONFORMING_A,), home="/nonexistent-home")
+    assert boundary.text(CONFORMING_A) == "S1"
+    assert boundary.text(UUID_A) == "S1"
+    assert boundary.text(f"a{UUID_A}b {CONFORMING_A}") == "aS1b S1"
+    assert not hasattr(boundary, "aliases")
+
+
+def test_qualification_uses_the_first_colon_decomposition_like_e2(tmp_path):
+    """분해는 E2와 같은 함수다 — 첫 `:` 이후 전부가 원본이라 `run:<uuid>`는 UUID가 아니다.
+
+    마지막 `:` 기준으로 가르면 이 값이 준수가 되어 파묻힌 등장까지 치환된다. 계약은
+    "분해가 갈라지면 두 절이 다른 값을 본다"를 막는 것이지 이 모양을 보호하려는 게 아니다.
+    """
+    odd = f"codex:run:{UUID_B}"
+    boundary = OutputBoundary(session_ids=(odd,), home="/nonexistent-home")
+    assert boundary.text(odd) == "S1"  # 값 전체는 여전히 별칭
+    assert boundary.text(f"glued x{UUID_B}y and whole {odd}.") == f"glued x{UUID_B}y and whole S1."
+
+
+def test_longer_needle_wins_over_its_prefix_in_free_text(tmp_path):
+    """긴 needle 우선 — 접두가 겹치는 ID가 자유 텍스트에서 잘려 `S1-1` 꼴로 새지 않는다."""
+    boundary = OutputBoundary(session_ids=("claude:s", "claude:s-1"), home="/nonexistent-home")
+    assert boundary.text("see claude:s-1 and claude:s") == "see S1 and S2"
+
+
+def test_stdio_round_trip_aliases_a_buried_uuid(tmp_path):
+    """직렬화를 거친 실제 stdio 왕복에서도 파묻힌 ID가 별칭으로 나온다 (임시 store)."""
+    root = tmp_path / "store"
+    buried_store(root)
+    result = stdio_call_tool(root, tmp_path, GUARD_EVIDENCE_TOOL, {"guard_id": "buried-guard"})
+    assert result.is_error in (False, None)
+    text = whole_result(result)
+    assert UUID_A not in text
+    assert UUID_B not in text
+    rows = {row["event_id"]: row for row in json.loads(result_text(result))["events"]}
+    alias = rows["ev-a"]["session"]
+    assert f"foo{alias}bar" in rows["ev-a"]["reason"]
 
 
 # --- §8 읽기 전용 --------------------------------------------------------------

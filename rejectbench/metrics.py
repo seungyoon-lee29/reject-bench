@@ -12,11 +12,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
 from rejectbench.dataset import Dataset
-from rejectbench.records import Origin, SchemaError, Utility, Verdict
+from rejectbench.records import GuardEvent, Origin, SchemaError, Utility, Verdict
+
+#: 운영 사건 집합을 더 좁히는 술어 (003 spec §9 파티션). `None`이면 전체다. 지표의
+#: 정의는 그대로고 **어느 사건 위에서 재느냐**만 달라진다 — 보고서가 정의를 재정의하지
+#: 않고 이 한 정의를 파티션마다 재사용하게 하는 자리다.
+EventFilter = Callable[[GuardEvent], bool] | None
 
 
 class Status(StrEnum):
@@ -43,28 +49,32 @@ def review_status(dataset: Dataset, event_id: str) -> Status:
     return Status.CONFIRMED
 
 
-def operation_event_ids(dataset: Dataset) -> list[str]:
-    """운영 지표 대상 사건 — 등록된, 유효 출처 operation 사건만."""
+def operation_event_ids(dataset: Dataset, *, event_filter: EventFilter = None) -> list[str]:
+    """운영 지표 대상 사건 — 등록된, 유효 출처 operation 사건만 (필터는 그 안쪽)."""
     return [
         event_id
         for event_id, event in dataset.events.items()
-        if not event.unregistered and dataset.effective_origin(event_id) is Origin.OPERATION
+        if not event.unregistered
+        and dataset.effective_origin(event_id) is Origin.OPERATION
+        and (event_filter is None or event_filter(event))
     ]
 
 
-def decidable_event_ids(dataset: Dataset) -> list[str]:
+def decidable_event_ids(dataset: Dataset, *, event_filter: EventFilter = None) -> list[str]:
     """판정 가능 사건 — operation 사건 중 판정·검토가 모두 확정값인 것."""
     return [
         event_id
-        for event_id in operation_event_ids(dataset)
+        for event_id in operation_event_ids(dataset, event_filter=event_filter)
         if verdict_status(dataset, event_id) is Status.CONFIRMED
         and review_status(dataset, event_id) is Status.CONFIRMED
     ]
 
 
-def _decidable_events_by_guard(dataset: Dataset) -> dict[str, list[str]]:
+def _decidable_events_by_guard(
+    dataset: Dataset, *, event_filter: EventFilter = None
+) -> dict[str, list[str]]:
     by_guard: dict[str, list[str]] = {}
-    for event_id in decidable_event_ids(dataset):
+    for event_id in decidable_event_ids(dataset, event_filter=event_filter):
         guard_id = dataset.events[event_id].guard_id
         by_guard.setdefault(guard_id, []).append(event_id)
     return by_guard
@@ -105,8 +115,14 @@ class Completion:
         return 100.0 * self.numerator / self.denominator
 
 
-def decision_completion(dataset: Dataset) -> Completion:
-    by_guard = _decidable_events_by_guard(dataset)
+def decision_completion(dataset: Dataset, *, event_filter: EventFilter = None) -> Completion:
+    """증거 기반 결정 완료율의 원수. 파티션 위에서 재면 **그 파티션 안** 사건만이 근거다.
+
+    가드 단위 지표라 파티션 두 벌의 합은 전체와 같지 않을 수 있다 — 한 가드가 전체에서는
+    판정 가능(서로 다른 2세션)이면서 어느 파티션 안에서도 판정 불가일 수 있다. 합으로
+    검산하지 말 것.
+    """
+    by_guard = _decidable_events_by_guard(dataset, event_filter=event_filter)
 
     decidable: set[str] = set()
     for guard_id, event_ids in by_guard.items():

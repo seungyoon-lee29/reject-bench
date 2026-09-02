@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import sys
 import tempfile
 import uuid
@@ -35,6 +36,9 @@ from rejectbench.records import (
     GuardSpec,
     LossKind,
     LossRecord,
+    SessionIdFormat,
+    session_id_format,
+    split_session_id,
 )
 from rejectbench.registry import GuardRegistry, enforcement_ref_for
 from rejectbench.scrub import redact_command_echo, scrub_text
@@ -48,7 +52,13 @@ STORE_ENV = "REJECTBENCH_STORE"
 FALLBACK_DIR_ENV = "REJECTBENCH_FALLBACK_DIR"
 FALLBACK_FILENAME = "rejectbench-loss-fallback.log"
 
+# 차단 사유 본문 상한 (마커 별도).
 _MAX_REASON = 4000
+# 공백 되물림을 포기하는 하한. **절대 문자 수가 아니라 상한에 대한 비율**이다 —
+# 상한을 튜닝하면 하한이 함께 움직여야 하고, 두 상수가 따로 놀면 조용히 깨진다.
+_MIN_REASON_RATIO = 0.5
+_MIN_REASON = int(_MAX_REASON * _MIN_REASON_RATIO)
+_TRUNCATION_MARKER = "…[truncated]"
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,123 @@ def _detect_drift(spec: GuardSpec, guard_path: str) -> bool:
     return current.file_hash != ref.file_hash
 
 
+# --- 차단 사유 절단 (spec §3) -------------------------------------------------
+#
+# 절단점은 ① 공백 되물림 → ② 민감값 가로지름 회피(고정점, 항상) → ③ 하한 폴백
+# 순으로 정한다. ①은 정돈이고 ②는 안전 보장이라 폴백 경로에도 ②는 남는다.
+# 보장 범위는 **이 사건의 민감값 세 종**에 한한 새 파편 생성 차단이다 — 사유에
+# 섞인 타 세션 ID는 대상이 아니다(알려면 store를 읽어야 하고, 그 I/O는 no-throw
+# 봉투 안에서 감당하지 않는다).
+
+
+def _home_path(env: Mapping[str, str]) -> str:
+    """절단이 아는 홈 절대 경로 원문. 알 수 없거나 루트면 대상에서 뺀다.
+
+    주입된 `env`만 본다 — `Path.home()`은 프로세스 환경을 읽어 "홈 없음" 경로가
+    개발자 실제 홈으로 도는 것을 숨긴다. env에 없으면 계정 DB(pwd)로 폴백한다.
+    끝 슬래시는 정규화한다: `HOME=/Users/x/`이면 사유 속 `/Users/x`가 needle과
+    어긋나 보호가 빠지고, 조회 경계(`Path.home()` 기반)와도 다른 값을 보게 된다.
+    """
+    home = env.get("HOME") or ""
+    if not home:
+        try:
+            home = pwd.getpwuid(os.getuid()).pw_dir
+        except (KeyError, OSError, AttributeError):  # 홈을 알 수 없는 환경
+            home = ""
+    home = home.rstrip("/")
+    # 루트("/")는 rstrip 뒤 빈 문자열이다 — 루트를 홈으로 잡으면 모든 경로 조각이
+    # 민감값이 되므로 그대로 대상에서 뺀다.
+    return home
+
+
+def _sensitive_values(
+    *, env: Mapping[str, str], session_id: str, context_available: bool
+) -> tuple[str, ...]:
+    """적재 시점에 아는 민감값 — 홈 절대 경로·복합 세션 ID·원본 세션 ID.
+
+    원본은 페이로드가 아니라 저장 복합값을 `split_session_id`로 되분해해 얻는다
+    — needle 산출이 §4 형식 검사·§5 조회 경계와 한 함수를 쓰게 하기 위해서다.
+    자리표시(`harness:unknown`)의 원본 부분은 민감값이 아니다: 일반 단어
+    `unknown`을 needle로 삼으면 사유가 부당하게 줄어든다.
+    """
+    _, raw = split_session_id(session_id)
+    candidates = (_home_path(env), session_id, raw if context_available and raw else "")
+    return tuple(value for value in candidates if value)
+
+
+def _whitespace_cut(text: str, cut: int) -> int:
+    """공백 구분 단위를 반토막 내지 않는 절단점 — `cut` 이하.
+
+    경계 술어는 `str.isspace()`다 — 계약의 "공백 구분 단위"가 `str.split()`
+    경계이고 `split()`이 쓰는 술어가 이것이다. `cut` 자리가 공백류면 단위가
+    거기서 정확히 끝난 것이라 되물릴 이유가 없다. 그 외에는 앞 `cut`자 안의
+    마지막 공백류 앞까지 되물린다. 뒤에서 훑는 선형 구현을 쓴다 — 정규식 판은
+    공백 없는 한 덩어리 입력에서 역추적으로 2차 시간이 된다(plan.md E1).
+    """
+    if cut < len(text) and text[cut].isspace():
+        return cut
+    head = text[:cut]
+    index = len(head)
+    while index > 0 and not head[index - 1].isspace():
+        index -= 1  # 절단점이 자른 비공백 연속열을 통째로 버린다
+    while index > 0 and head[index - 1].isspace():
+        index -= 1  # 그 앞 공백류도 본문에 남기지 않는다
+    return index
+
+
+def _retreat_past_sensitive(text: str, cut: int, sensitive: tuple[str, ...]) -> int:
+    """절단점이 민감값 등장을 가로지르면 그 등장의 시작 전까지 되물린다 — 고정점.
+
+    가로지름 = 등장이 `cut` 앞에서 시작해 `cut` 뒤에서 끝난다. **가로지를
+    때만** 되물린다 — 본문 안에 온전히 든 등장까지 되물리면 사유가 통째로
+    사라진다. 찾는 창의 상한이 `cut - 1`이라 찾은 시작은 항상 `cut`보다 앞이고,
+    따라서 루프는 유한 단계에 멈춘다.
+    """
+    while cut > 0:
+        starts = []
+        for value in sensitive:
+            span = len(value)
+            # 창 [cut-span+1, cut-1]: 이 안에서 시작하는 등장만 cut을 가로지른다
+            found = text.find(value, max(0, cut - span + 1), cut + span - 1)
+            if found != -1:
+                starts.append(found)
+        if not starts:
+            break
+        cut = min(starts)
+    return cut
+
+
+def _cut_point(text: str, sensitive: tuple[str, ...]) -> int:
+    """본문 절단점 — ① 공백 되물림 → ② 민감값 고정점 → ③ 하한 폴백."""
+    tidy = _retreat_past_sensitive(text, _whitespace_cut(text, _MAX_REASON), sensitive)
+    if tidy >= _MIN_REASON:
+        return tidy
+    # 정돈이 본문 절반 이상을 먹으면 정돈을 버린다. 안전 보장(②)은 폴백에도 남는다.
+    return _retreat_past_sensitive(text, _MAX_REASON, sensitive)
+
+
+def _truncate_reason(
+    text: str, *, env: Mapping[str, str], session_id: str, context_available: bool
+) -> str:
+    """상한 초과 사유만 절단한다. 절단점 계산이 죽으면 맹목 절단(spec §3.5).
+
+    이 폴백은 `assemble_event` 안에서 닫혀야 한다 — 예외가 밖으로 새면
+    `record_guard_result`가 `_record_loss`로 보내 `recorded=False`가 된다.
+    """
+    if len(text) <= _MAX_REASON:
+        return text
+    try:
+        cut = _cut_point(
+            text,
+            _sensitive_values(
+                env=env, session_id=session_id, context_available=context_available
+            ),
+        )
+    except Exception:
+        cut = _MAX_REASON  # 절단 계산 결함이 사건을 LossRecord로 강등시키지 않는다
+    return text[:cut] + _TRUNCATION_MARKER
+
+
 # --- 조립 --------------------------------------------------------------------
 
 
@@ -241,9 +368,12 @@ def assemble_event(
         }
         drift = _detect_drift(spec, guard_path)
 
-    scrubbed = scrub_text(redact_command_echo(reason))
-    if len(scrubbed) > _MAX_REASON:
-        scrubbed = scrubbed[:_MAX_REASON] + "…[truncated]"
+    scrubbed = _truncate_reason(
+        scrub_text(redact_command_echo(reason)),
+        env=env,
+        session_id=session_id,
+        context_available=context_available,
+    )
     return GuardEvent(
         event_id=f"ev-{uuid.uuid4().hex}",
         occurred_at=now,
@@ -255,8 +385,22 @@ def assemble_event(
         origin_evidence=evidence,
         capture_status=capture,
         drift=drift,
+        session_id_format=_session_id_format(session_id, context_available),
         **guard_fields,
     )
+
+
+def _session_id_format(session_id: str, context_available: bool) -> SessionIdFormat:
+    """§4 진단값 — 자리표시는 미검사, 술어 예외도 미검사(사건 보존 우선, spec §4.6).
+
+    이 폴백도 assemble_event 안에서 닫힌다 — 검사·표시가 기록 실패로 새면 안 된다.
+    """
+    if not context_available:
+        return SessionIdFormat.UNCHECKED
+    try:
+        return session_id_format(session_id)
+    except Exception:
+        return SessionIdFormat.UNCHECKED
 
 
 # --- 기록 (비블로킹) ---------------------------------------------------------

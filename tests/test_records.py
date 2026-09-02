@@ -3,26 +3,34 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from datetime import datetime, timezone
 
 import pytest
 
 from rejectbench import (
     SCHEMA_VERSION,
+    SESSION_ID_RAW_RULE,
     ActionSummary,
     Amendment,
+    AppendStore,
     CaptureStatus,
     Decision,
     GuardDecision,
     GuardEvent,
+    GuardSpec,
+    JudgeCalibration,
     LossKind,
     LossRecord,
     Origin,
     OriginEvidence,
     SchemaError,
+    SessionIdFormat,
     Utility,
     Verdict,
     record_from_json,
+    session_id_format,
+    split_session_id,
 )
 from tests.factories import (
     make_action,
@@ -207,8 +215,203 @@ class TestGuardEvent:
             "guard_hint",
             "drift",
             "post_remove",
+            "session_id_format",
             "schema_version",
         }
+
+
+# --- 세션 ID 적재 형식 (003 spec §4) -------------------------------------------
+#
+# 계약이 고정한 파라미터(8~128자, `[A-Za-z0-9_-]`)는 리터럴로 못 박는다 — 구현
+# 상수를 읽어 비교하면 튜닝해도 테스트가 따라 움직여 계약 개정 없이 지나간다.
+
+UUID_RAW = "11111111-2222-3333-4444-555555555555"
+
+
+class TestSessionIdDecomposition:
+    def test_everything_after_the_first_colon_is_the_raw_part(self):
+        assert split_session_id(f"claude:{UUID_RAW}") == ("claude", UUID_RAW)
+        assert split_session_id("claude:abc:def") == ("claude", "abc:def")
+
+    def test_value_without_colon_has_no_raw_part(self):
+        assert split_session_id("claude") == ("claude", None)
+
+    def test_empty_raw_part_is_present_but_empty(self):
+        assert split_session_id("claude:") == ("claude", "")
+
+
+class TestSessionIdFormat:
+    def test_format_enum_is_exactly_the_spec_set(self):
+        assert {f.value for f in SessionIdFormat} == {
+            "conforming",
+            "nonconforming",
+            "unchecked",
+        }
+
+    def test_uuid_raw_part_conforms(self):
+        assert session_id_format(f"claude:{UUID_RAW}") is SessionIdFormat.CONFORMING
+
+    def test_length_bounds_are_8_and_128_inclusive(self):
+        assert session_id_format("claude:" + "a" * 7) is SessionIdFormat.NONCONFORMING
+        assert session_id_format("claude:" + "a" * 8) is SessionIdFormat.CONFORMING
+        assert session_id_format("claude:" + "a" * 128) is SessionIdFormat.CONFORMING
+        assert session_id_format("claude:" + "a" * 129) is SessionIdFormat.NONCONFORMING
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "abcdefg.h",  # 점
+            "abcd efgh",  # 공백
+            "abcd/efgh",  # 경로 구분자
+            "abcd:efgh",  # 두 번째 콜론도 원본의 일부라 금지 문자다
+            "abcdefgh\n",  # 끝 개행 — `$` 앵커는 이걸 놓친다
+            "abcdefghé",  # 비ASCII
+        ],
+    )
+    def test_forbidden_characters_do_not_conform(self, raw):
+        assert session_id_format(f"claude:{raw}") is SessionIdFormat.NONCONFORMING
+
+    def test_hyphen_and_underscore_are_in_the_charset(self):
+        # 하드 게이트: Claude Code 세션 ID가 UUID(하이픈 포함)라 하이픈이 빠지면 안 된다.
+        assert session_id_format("claude:abcd-efgh") is SessionIdFormat.CONFORMING
+        assert session_id_format("claude:abcd_efgh") is SessionIdFormat.CONFORMING
+
+    def test_value_without_colon_does_not_conform(self):
+        assert session_id_format(UUID_RAW) is SessionIdFormat.NONCONFORMING
+
+    def test_a_uuid_after_a_second_colon_does_not_conform(self):
+        # 첫 `:` 이후 **전부**가 원본이다 — 마지막 `:` 기준 분해면 이 값이 준수가 된다.
+        assert session_id_format(f"codex:run:{UUID_RAW}") is SessionIdFormat.NONCONFORMING
+
+    def test_only_the_raw_part_is_checked(self):
+        # harness 부분은 검사 대상이 아니다 — 술어를 어기는 접두라도 원본이 준수면 준수.
+        assert session_id_format(f"we ird:{UUID_RAW}") is SessionIdFormat.CONFORMING
+
+    def test_rule_parameters_are_one_named_constant(self):
+        assert SESSION_ID_RAW_RULE.min_len == 8
+        assert SESSION_ID_RAW_RULE.max_len == 128
+        assert SESSION_ID_RAW_RULE.charset == "A-Za-z0-9_-"
+
+
+class TestSessionIdFormatField:
+    def test_event_carries_one_of_three_states_and_null_is_rejected(self):
+        event = make_event(make_spec(), session_id_format=SessionIdFormat.CONFORMING)
+        assert event.session_id_format is SessionIdFormat.CONFORMING
+        with pytest.raises(SchemaError):
+            make_event(make_spec(), session_id_format=None)
+        with pytest.raises(SchemaError):
+            make_event(make_spec(), session_id_format="conforming")
+
+    def test_serialized_event_carries_the_format_string(self):
+        payload = make_event(
+            make_spec(), session_id_format=SessionIdFormat.NONCONFORMING
+        ).to_json()
+        assert payload["session_id_format"] == "nonconforming"
+        assert record_from_json(payload).session_id_format is SessionIdFormat.NONCONFORMING
+
+    def test_invalid_format_string_rejected_on_parse(self):
+        payload = make_event(make_spec()).to_json()
+        payload["session_id_format"] = "maybe"
+        with pytest.raises(SchemaError):
+            record_from_json(payload)
+        payload["session_id_format"] = None
+        with pytest.raises(SchemaError):
+            record_from_json(payload)
+
+
+class TestSchemaVersion:
+    def test_schema_version_is_7_1(self):
+        assert SCHEMA_VERSION == "7.1"
+
+    def test_all_seven_records_and_the_calibration_sidecar_follow_the_global_constant(self):
+        for record in all_records():
+            assert record.schema_version == "7.1"
+        (field,) = [f for f in dataclasses.fields(JudgeCalibration) if f.name == "schema_version"]
+        assert field.default == "7.1"
+
+
+def legacy_event_payload() -> dict:
+    """7.0 구형 저장 JSON — `session_id_format` 키가 없다."""
+    payload = make_event(make_spec()).to_json()
+    del payload["session_id_format"]
+    payload["schema_version"] = "7.0"
+    return payload
+
+
+def append_raw_line(store: AppendStore, payload: dict) -> None:
+    store.root.mkdir(parents=True, exist_ok=True)
+    with open(store.path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
+
+
+class TestLegacyEventParsing:
+    def test_7_0_event_without_the_field_loads_as_unchecked(self):
+        event = record_from_json(legacy_event_payload())
+        assert isinstance(event, GuardEvent)
+        assert event.session_id_format is SessionIdFormat.UNCHECKED
+        assert event.schema_version == "7.0"  # 재작성하지 않는다 — 저장값 그대로
+
+    def test_relaxation_keys_on_field_absence_not_on_the_version_value(self):
+        payload = legacy_event_payload()
+        payload["schema_version"] = "7.1"
+        assert record_from_json(payload).session_id_format is SessionIdFormat.UNCHECKED
+
+    def test_parser_does_not_mutate_the_caller_payload(self):
+        payload = legacy_event_payload()
+        before = json.dumps(payload, sort_keys=True)
+        record_from_json(payload)
+        assert json.dumps(payload, sort_keys=True) == before
+
+    def test_legacy_line_in_a_store_is_not_a_corrupt_line(self, tmp_path):
+        store = AppendStore(tmp_path / "store")
+        store.append(make_spec())
+        append_raw_line(store, legacy_event_payload())
+        result = store.load()
+        assert result.corrupt == []
+        assert [type(r) for r in result.records] == [GuardSpec, GuardEvent]
+        assert result.records[1].session_id_format is SessionIdFormat.UNCHECKED
+
+    def test_guard_event_missing_any_other_key_is_still_corrupt(self):
+        for key in ("drift", "reason", "session_id", "capture_status"):
+            payload = make_event(make_spec()).to_json()
+            del payload[key]
+            with pytest.raises(SchemaError):
+                record_from_json(payload)
+
+    def test_guard_event_missing_the_field_and_another_key_is_still_corrupt(self):
+        payload = legacy_event_payload()
+        del payload["drift"]
+        with pytest.raises(SchemaError):
+            record_from_json(payload)
+
+    def test_guard_event_missing_the_field_with_an_extra_key_is_still_corrupt(self):
+        payload = legacy_event_payload()
+        payload["prompt"] = "전문 저장 시도"
+        with pytest.raises(SchemaError):
+            record_from_json(payload)
+
+    def test_other_record_types_missing_a_key_are_still_corrupt(self):
+        for record in all_records():
+            if isinstance(record, GuardEvent):
+                continue
+            payload = record.to_json()
+            key = next(k for k in payload if k not in ("record_type", "schema_version"))
+            del payload[key]
+            with pytest.raises(SchemaError):
+                record_from_json(payload)
+
+    def test_other_broken_lines_in_a_store_are_still_corrupt_lines(self, tmp_path):
+        store = AppendStore(tmp_path / "store")
+        store.append(make_spec())
+        broken_event = legacy_event_payload()
+        del broken_event["drift"]
+        append_raw_line(store, broken_event)
+        broken_verdict = make_verdict(make_event(make_spec())).to_json()
+        del broken_verdict["reason"]
+        append_raw_line(store, broken_verdict)
+        result = store.load()
+        assert [c.line_no for c in result.corrupt] == [2, 3]
+        assert [type(r) for r in result.records] == [GuardSpec]
 
 
 class TestActionSummary:

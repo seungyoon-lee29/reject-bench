@@ -15,9 +15,9 @@
 
 **선행 절차 — 기준선 측정 (빌드 아님, 태스크 아님)**
 
-- [ ] `block-dangerous-git` 자기차단 2건에 대해 transcript+git 복원으로 기준선을 뜬다(`docs/관찰-프로토콜.md` 절차)
-- [ ] **도구 보고서를 먼저 읽지 않는다** — 복원 오염 방지. 측정 완료 후 조회 금지가 해제된다
-- [ ] 완료 사실과 측정 결과를 루트 `HANDOFF.md`에 남긴다
+- [x] `block-dangerous-git` 자기차단 2건에 대해 transcript+git 복원으로 기준선을 떴다 — 정본 `docs/기준선-측정.md`(PR #4). 도구 경로가 소요 −43%·연 파일 −54%, 단 조회 표면만으로는 6항목 중 5개가 상한
+- [x] 도구 보고서를 먼저 읽지 않았다 — 측정 완료로 조회 금지 해제(루트 `CLAUDE.md`/`AGENTS.md` 비협상 ⑦은 조건문이라 문면 유지)
+- [x] 완료 사실과 측정 결과를 루트 `HANDOFF.md` "끝난 것"에 남겼다. (체크 표시는 2026-09-02 E7 완료 시점에 소급 — 측정 자체는 E0 이전 2026-09-01에 끝났다)
 
 막힘 시 규칙(spec §11): 논리 의존(E2→E1 같은 파일, E3→E2 분해 함수, E6→E3 갱신 대상 확정, E7→E2 스키마 헤더)은 선행이 막히면 함께 멈춘다. 순서 제약뿐인 것(E1의 E0 선행, E4의 E0·E3 선행, E5의 E4 선행, E6의 E5 선행, E7의 E6 선행)은 선행이 막혀 중단됐어도 진행할 수 있다 — 단 E5의 기구 변경 추기(②)는 실제로 반영된 변경만 기록한다.
 
@@ -40,11 +40,13 @@
 
 의존: 없음(E0과는 순서 제약). spec §3.
 
-- [ ] 실패 테스트 먼저: 홈 경로 가로지름 / 복합 세션 ID 가로지름 / **병리 입력(공백 없음) + 원본 세션 ID 가로지름** / **공백을 품은 민감값 가로지름(공백 되물림 뒤에도 검사가 도는지)** / **공백이 앞쪽 한 곳에만 있는 긴 입력(하한 폴백)** / 공백 없는 병리 입력 일반 / 정확히 4000자 / 짧은 입력 무변경
-- [ ] 절단 되물림 구현: ① 공백류 되물림 → ② 민감값 세 종 가로지름 회피(고정점, **항상 적용**) → ③ 결과가 상한의 50% 미만이면 공백 되물림을 버리고 맹목 절단 + ②만 적용한 폴백
-- [ ] 상한(4000)과 하한(50%)을 명명 상수로 두고 하한을 상한의 비율로 계산 — 두 상수가 따로 놀지 않게
-- [ ] 내부 폴백 확인: 절단 경로 예외 주입 시 맹목 절단으로 되돌아가고 **GuardEvent는 정상 기록**(`recorded=True`) — LossRecord 강등이 아님
-- [ ] **import 스모크**: `python -c "import rejectbench.wrapper"` 성공
+- [x] 실패 테스트 먼저: 요구된 8종 전부 + 경계·음성 대조를 더해 25건 신규(23→48). main 기록기 대비 17건 red 확인 후 구현(초기 기록 "28건/13건"은 실측 오류 — 2026-09-02 코드리뷰로 정정)
+- [x] 절단 되물림 구현: ① 공백류 되물림 → ② 민감값 세 종 가로지름 회피(고정점, **항상 적용**) → ③ 결과가 상한의 50% 미만이면 공백 되물림을 버리고 맹목 절단 + ②만 적용한 폴백 — `recorder.py`의 `_whitespace_cut`·`_retreat_past_sensitive`·`_cut_point`
+- [x] 상한(4000)과 하한(50%)을 명명 상수로 두고 하한을 상한의 비율로 계산 — `_MIN_REASON = int(_MAX_REASON * _MIN_REASON_RATIO)`. 값을 리터럴로 되풀이해 고정하는 테스트는 두지 않는다(2026-09-02 코드리뷰·사용자 결정 — 경계 테스트가 `MAX`·`FLOOR`로 이미 값을 구속한다)
+- [x] 내부 폴백 확인: `_cut_point` 예외 주입 시 맹목 절단 + `recorded=True`, LossRecord 0건 — `test_truncation_failure_falls_back_to_blind_cut_and_still_records`
+- [x] **import 스모크**: 저장소 밖 cwd에서 `IMPORT OK` (편집 3회 각각 뒤)
+- [x] **추가(적대 검증 반영)**: 되물림의 상한 경계("가로지를 때만")를 고정하는 음성 대조 3건 — 없으면 사유 앞머리 홈 경로 하나로 본문이 0자가 되는 과잉 구현이 전량 green으로 지나간다. 돌연변이 8종(과잉 되물림 2·창 off-by-one·고정점 1회·되물림 제거·개행/탭 무시·하한 상수화) 전부 red 확인
+- [x] **추가(적대 검증 반영)**: `_whitespace_cut`을 정규식에서 역방향 선형 훑기로 — 정규식 판은 앞 4000자가 한 덩어리인 입력(경로 덤프·compact JSON 한 줄)에서 역추적으로 40ms였다. 두 판의 절단점은 무작위 10만 건·경계 케이스 전부 일치
 
 작업 대상: [파일] `rejectbench/recorder.py`, `tests/test_recorder.py`.
 검증 게이트: 신규 테스트 red→green + `uv run pytest` 전체 통과 + import 스모크.
@@ -54,13 +56,15 @@
 
 의존: E1 (같은 파일 연쇄 수정). spec §4.
 
-- [ ] 실패 테스트 먼저: UUID 준수 / 7자·129자·금지 문자 비준수 / `:` 없는 값 비준수 / 자리표시 `unchecked` / 검사 예외 주입 시 `unchecked` + 기록 불변 / **구 형식(7.0, 필드 부재) JSON 파싱 → `unchecked` 적재·손상 줄 0건** / **`guard_event`의 다른 필드 누락과 타 record_type 필드 누락은 여전히 손상 줄**
-- [ ] 복합값 분해 함수 구현(첫 `:` 기준, 이후 전부가 원본) — **E3가 재사용할 위치에**
-- [ ] 형식 술어 구현(원본 부분 대상, 8~128자 `[A-Za-z0-9_-]`) — 파라미터는 명명 상수 한 곳
-- [ ] `GuardEvent.session_id_format` 추가, 값 enum `conforming`/`nonconforming`/`unchecked`(`null` 불허)
-- [ ] `SCHEMA_VERSION` 7.1 인상 — 전역 상수 일괄(7종 + `judge.py` 사이드카)
-- [ ] 파서 완화: `record_type == "guard_event"`이고 누락 키가 `session_id_format` **하나**일 때만 `unchecked`로 수용
-- [ ] **import 스모크**: `python -c "import rejectbench.wrapper"` 성공
+- [x] 실패 테스트 먼저: 요구된 7종 전부 + 경계(8자·128자·둘째 콜론·harness 부분 무검사)·초과 키·호출자 dict 무변경·store 수준 손상 줄 대조를 더해 39건(records 31·recorder 8). 두 슬라이스(records → recorder) 각각 red 확인 후 구현
+- [x] 복합값 분해 함수 구현 — `records.split_session_id`(`str.partition` 첫 `:`, 없으면 원본 `None`). `records`는 `recorder`·`mcp_server` 둘 다 이미 import하는 최경량 모듈이라 E3가 그대로 쓴다. `recorder._sensitive_values`의 원본 needle도 이 함수로 모았다(E1 적대 검증 지적 반영) — 단 자리표시는 needle에서 뺀다
+- [x] 형식 술어 구현 — `records.session_id_format`(원본 부분만, `re.fullmatch`). 파라미터는 `SESSION_ID_RAW_RULE = SessionIdRawRule(8, 128, "A-Za-z0-9_-")` 한 곳. 값 회귀는 리터럴 단언(`test_rule_parameters_are_one_named_constant`)
+- [x] `GuardEvent.session_id_format` 추가 — `SessionIdFormat` StrEnum 3상, `_require_enum`으로 `null`·문자열 거부. dataclass 기본값 `unchecked`(검사 안 한 사실 그대로). 기록기는 자리표시 → `unchecked`, 술어 예외 → `unchecked`(폴백은 `assemble_event` 안 `_session_id_format`에서 닫힘, LossRecord 0건 확인)
+- [x] `SCHEMA_VERSION` 7.1 인상 — 전역 상수 한 줄. 7종 + `JudgeCalibration` 기본값이 7.1을 따름을 테스트로 고정. 어떤 코드 경로도 이 값을 소비하지 않는다
+- [x] 파서 완화 — `records._accept_legacy_event`: `guard_event` ∧ 누락 == {`session_id_format`} ∧ 초과 없음일 때만 사본에 `unchecked`를 채운다. 다른 키 누락·초과 키·타 record_type은 여전히 `SchemaError` → 손상 줄(store 수준에서 줄 번호까지 대조)
+- [x] **import 스모크**: 저장소 밖 cwd에서 `IMPORT OK` (슬라이스마다 + 커밋 직전, 3회)
+- [x] **사건 수 보존**(운영 store 읽기 전용, 완화 전후 대조): guard_event 7·손상 줄 0·operation 6·판정 가능 4·검토 큐 0·완료율 0/1·등록부 2가드 전부 동일. 실존 스키마 버전은 `{7.0}` 그대로(재작성 없음)
+- [x] **추가(판별력)**: 돌연변이 13종 중 12종 red — 초과 키 무시·`$` 앵커·하이픈 탈락·하한/상한 off-by-one·마지막 콜론 분해·예외 미포착·자리표시 검사·미검사·예외→conforming·needle 자리표시 포함·needle 원본 누락. `record_type` 검사 제거 1종은 등가 돌연변이(타 레코드는 그 키를 기대하지 않는다). "마지막 콜론" 돌연변이를 형식값 수준에서 가르는 픽스처(`codex:run:<uuid>` → 비준수)를 이 과정에서 추가했다
 
 작업 대상: [파일] `rejectbench/records.py`, `rejectbench/recorder.py`, `tests/test_records.py`, `tests/test_recorder.py`.
 검증 게이트: 신규 테스트 red→green + 전체 통과(기존 직렬화·파싱 회귀 포함) + **사건 수 보존** — 완화 전후로 등록부·지표 분모·검토 큐의 사건 수가 같고 손상 줄 수가 늘지 않음 + import 스모크.
@@ -70,13 +74,14 @@
 
 의존: E2 (분해 함수 재사용). spec §5.
 
-- [ ] 실패 테스트 먼저: UUID 문법 준수 ID를 일반 단어 속에 파묻은 픽스처가 도구 3종+오류 경로 응답에서 원문 0회 — 복합값·원본 부분 단독 등장 모두
-- [ ] 자격 술어를 **UUID 문법**으로 별도 정의(§4의 8~128 술어를 쓰지 않는다)
-- [ ] 출력 경계의 needle 분류 구현: 준수 복합값은 부분문자열 매칭 + 원본 부분 needle 병행(동일 별칭), 자리표시·비준수·`:` 없는 값은 현행 토큰 경계 유지
-- [ ] **비훼손 검증**: 자리표시(`unknown`)·비준수 ID 주변의 일반 텍스트가 변하지 않음
-- [ ] **준수 부류 비훼손 픽스처**: 준수 ID가 타임스탬프·`content_hash`·`event_id`와 겹치는 픽스처에서 그 값들이 변하지 않음
-- [ ] 002의 기존 양성 대조 전체가 그대로 통과함을 확인(값 전체·토큰·오류 경로·홈 경로)
-- [ ] 임시 store 실기동 왕복 1건: **`--store <임시 경로>` 인자로 별도 기동한 프로세스**에 stdio 호출로 파묻힌 ID가 별칭으로 나오는 응답 확인 — `.mcp.json` 등록 서버·인자 없는 기동 금지, `REJECTBENCH_STORE` env는 서버에 안 통함
+- [x] 실패 테스트 먼저: `buried_store` 픽스처 — 복합값 `claude:<uuid>`와 원본 `<uuid>`를 사유·판정 사유·검토 메모·결정 근거·spec 의미 필드에 `foo<uuid>bar`·`x<복합값>y`·`/<uuid>.jsonl` 꼴로 파묻고 도구 3종 + 메아리가 나가는 오류 경로(목록형 `guard_id`)의 응답 전체에서 원문 0회, 별칭이 주변 글자를 보존한 채 나타남을 단언. 신규 9건 중 4건 red 확인 후 구현(나머지는 현행 동작을 지키는 대조라 처음부터 green이 맞다)
+- [x] 자격 술어 — `mcp_server._UUID_SYNTAX`(8-4-4-4-12 hex, `fullmatch`) + `_uuid_raw_part`. 분해는 **E2의 `records.split_session_id`** 그대로(첫 `:` 기준 — 마지막 `:` 분해 돌연변이를 `codex:run:<uuid>` 픽스처가 잡는다)
+- [x] needle 분류 — `OutputBoundary._needles`(needle → 정본 저장 ID) 하나로 통합. 준수 복합값은 복합값·원본 둘 다 무경계 부분문자열 needle이고 같은 정본(동일 별칭), 그 외는 `(?<!\w)…(?!\w)` 토큰 경계 유지. 단일 패스 치환·긴 needle 우선·홈 치환 전 별칭화·오류 경로 단일 통과는 그대로
+- [x] **비훼손 검증** — 자리표시 `claude:unknown` 사건의 사유 `unknown state; unknownish…`와 정책 텍스트가 글자 하나 안 바뀜, 비준수 `claude:sess-1`의 `prefix…suffix` 접착 등장이 002대로 원문 유지
+- [x] **준수 부류 비훼손 픽스처** — §4 술어로는 준수인 날짜꼴(`2026-08-01`)·12자 hex 조각·`planted0001`을 세션 ID로 심고 `occurred_at`·`content_hash`·`event_id` 불변 + 세션 필드는 별칭. §4 술어를 자격으로 쓰는 돌연변이가 이 테스트에서만 red다
+- [x] 002 양성 대조 전체 통과(값 전체·토큰·오류 경로·홈 경로·정화 후 절단) — 기존 89건 무수정
+- [x] 임시 store 실기동 왕복 — (a) 테스트 `test_stdio_round_trip_aliases_a_buried_uuid`(하위 프로세스 stdio) (b) 하드 게이트 3의 명령 한 줄(`PYTHONPATH=… uv run --project … python -m rejectbench.mcp_server --store <임시>`)을 **저장소 밖 cwd**에서 별도 기동해 `guard_evidence` 호출: 도구 3종 목록, `is_error: false`, 원본 UUID·복합값 0회, `reason: "transcript /x/S1.jsonl; glued fooS1bar; whole S1"`. 운영 store 무접촉
+- [x] **추가(판별력)**: 돌연변이 7종 전부 red — §4 술어 자격·준수 부류 없음(002 대조군)·전부 무경계·마지막 콜론 분해·원본에 별도 별칭·준수도 토큰 경계·짧은 needle 우선. 마지막 둘은 처음 살아남아 픽스처를 더했다: 접두 겹침 ID(`claude:s`·`claude:s-1`)의 자유 텍스트 픽스처는 002 이후 한 번도 없었고, 짧은 needle 우선이면 `S1-1`로 샌다
 
 작업 대상: [파일] `rejectbench/mcp_server.py`, `tests/test_mcp_server.py`.
 검증 게이트: 신규+기존 양성 대조 전체 통과, 실기동 왕복은 임시 store로만.
@@ -86,13 +91,13 @@
 
 의존: 없음(E0·E3과는 순서 제약 — 전역 설정 파일은 순차·직접 수정). spec §6.
 
-- [ ] **스냅샷 먼저**: 편집 직전 전역 설정 스냅샷(사용자 `.bak-*`와 다른 이름) → 임시 파일에 쓰고 JSON 파싱 성공 확인 후 교체 → 아래 검증 3종 중 하나라도 실패하면 복원
-- [ ] `~/.claude/settings.json`에서 collect.py 호출 4건만 제거(PostToolUse `Edit|Write|MultiEdit|NotebookEdit` / PostToolUseFailure / PermissionRequest / PermissionDenied). 같은 이벤트의 다른 훅·v7 래퍼 배선(PreToolUse `Bash`, E0이 고친 상태) 불변
-- [ ] `hooks/collect.py` 삭제 (`continuity.py`·`codex_handoff_gate.py`와 테스트, `data/events.jsonl`은 보존)
-- [ ] `docs/배선-목록.md`에서 **collect.py를 언급하는 모든 줄** 갱신 — v0 절 밖의 `:27`("퇴역 여부는 … HANDOFF 미결 3") 포함. 죽은 번호 참조를 **항목명**으로 교체
-- [ ] `README.md` collect.py 문단 갱신
-- [ ] 읽기 조회로 확인: 전역 설정 유효 JSON + collect.py 항목 0건 + 래퍼 배선 잔존
-- [ ] **캡처 3종을 `docs/배선-목록.md` 퇴역 완료 기록에 그대로 적는다** — git 밖 전역 설정이라 커밋 diff로는 사후 재구성이 불가능하다
+- [x] **스냅샷 먼저** — `~/.claude/settings.json.rejectbench-pre-e4-20260902`(바이트 일치 확인). 편집·검증·교체·복원을 한 스크립트에 박았다: 메모리 편집 → 임시 파일(원본 서식 보존) → 재파싱 + 검증 3종 + "collect.py 외 항목 불변" → `os.replace` → 교체 후 재검증, 실패 시 스냅샷 복원. **복원은 발동하지 않았다**
+- [x] 전역 설정에서 collect.py 호출 4건만 제거 — 사전 조회로 정확히 4건(각각 단독 그룹)임을 확인하고 제거. 빈 그룹은 남기지 않았고, 남는 훅이 없는 `PermissionDenied`는 이벤트 키를 뺐다. 같은 이벤트의 다른 훅 3건·나머지 이벤트·래퍼 배선(PreToolUse `Bash`, `PYTHONPATH` 접두 포함) 불변 — 22→18건, 최상위 키 16 그대로
+- [x] `hooks/collect.py` 삭제(`git rm`). `continuity.py`·`codex_handoff_gate.py`·각 테스트·`data/events.jsonl` 보존, `pyproject.toml`의 `testpaths`/`pythonpath` 무변경
+- [x] `docs/배선-목록.md` — collect.py 언급 모든 줄 갱신: E0 캡처 표의 "E4가 지운다", v0 절 제목·본문, cutover 대사의 죽은 번호 참조("HANDOFF 미결 3" → 항목명 "v0 수집기 퇴역")
+- [x] `README.md` "기존 수집기 v0" 문단을 퇴역 사실로
+- [x] 읽기 조회로 확인(스크립트와 별도 조회): 유효 JSON / collect.py 0건 / 래퍼 1건 + 스냅샷 대비 `diff`가 제거 줄뿐(collect.py 줄 4, 추가 줄 0)
+- [x] 캡처를 `docs/배선-목록.md`의 "E4 v0 수집기 퇴역" 절에 표로 적었다. `uv run pytest` 520건 통과(연속성 훅 테스트 잔존)
 
 작업 대상: [파일] `hooks/collect.py`(삭제), `docs/배선-목록.md`, `README.md` · **[외부·비버전관리 상태]** `~/.claude/settings.json`(항목 4건 제거).
 검증 게이트: 읽기 조회 3종 캡처(목적지 `docs/배선-목록.md`) + `uv run pytest` 전체 통과(연속성 테스트 잔존 확인).
@@ -102,9 +107,9 @@
 
 의존: 없음(E4와는 순서 제약 — 모든 변경 확정 뒤 최종 문서화). spec §7.
 
-- [ ] `docs/관찰-프로토콜.md` "변경 기록"에 append **8건**: ① 기준선 이월 규칙 ② 기구 변경(E0·E1·E2·E4, 측정 의미 불변 명시) ③ 관측 무대 변화(reply-gate 배포 미진행, 전역 가드 중심, `protect-live-reports` 기대 발동 0 수렴) ④ 관측 범위 소급 정정(2026-08-29~E0 완료일) ⑤ 자기차단 산입 규칙(별도 표기, 지표 두 벌) ⑥ 본문 vs 변경 기록 승자 규칙 ⑦ 이월 누계 표기 ⑧ ADR 0001 supersede
-- [ ] ②는 **실제로 반영된 변경만** 기록 — 막혀서 빠진 태스크는 적지 않는다
-- [ ] 기존 본문 무수정 확인(diff가 append만 담는지)
+- [x] `docs/관찰-프로토콜.md` "변경 기록"에 append 8건(+ 머리말 1줄). 각 항목에 일자·사유(결정기록 참조)와 "사건 정의·출처 규칙·평가 양식·종료 조건 불변"을 달았다. ⑤에는 D12의 두 선등록(종료 조건은 그-외 파티션으로 판정 / `insufficient_context` 임계 = 확정 5건 이상에서 50% 이상, 전체 지표 기준)을 함께 적었다 — 종료 조건 문면은 불변이고 "어느 벌로 읽는가"의 해석 고정이다. ⑥은 변경 기록 안에 있다
+- [x] ② — E0(2026-09-01)·E1(`12e2269`)·E2(`73070dd`)·E4(`e439c82`) 넷만. 전부 실제로 반영·커밋된 변경이고, E3는 조회 표면이라 기구 목록 밖임을 명시
+- [x] 기존 본문 무수정 — `git diff --numstat`로 삭제 0줄 확인(아래 검증 게이트). ADR 0001은 frontmatter `status`를 `partially superseded`로 바꾸고 끝에 "Supersede 기록" 절만 덧붙였다(본문 보존 — 상태 표기는 ADR 관례)
 
 작업 대상: [파일] `docs/관찰-프로토콜.md`(append 전용), `docs/adr/0001-관측대상-실존-가드-앵커.md`(supersede 기록 — ADR 관례에 따른 상태 표기).
 검증 게이트: diff 검사 — `관찰-프로토콜.md`의 기존 줄 삭제·수정 0건, 추가만 존재.
@@ -114,11 +119,11 @@
 
 의존: E3 (갱신 대상이 E3 구현으로 확정된다). spec §8.
 
-- [ ] `rejectbench/AGENTS.md` 비노출 서술 갱신 — `:27`의 "단어에 붙은 동일 부분문자열은 … 보존한다"와 `:29`의 "임의 부분문자열까지 0회를 보장하려면 먼저 세션 ID 문법 … 을 적재 계약에 추가해야 한다"가 E3로 낡는다
-- [ ] 루트 `CLAUDE.md` 비협상 ⑥ 갱신(준수 부류 부분문자열 별칭화 + 잔여 한계 둘)
-- [ ] 루트 `AGENTS.md`를 같은 내용으로 갱신
-- [ ] 루트 `HANDOFF.md` 미결 목록·함정을 이 주기 상태로 갱신
-- [ ] **`diff CLAUDE.md AGENTS.md` exit 0** 확인
+- [x] `rejectbench/AGENTS.md` 비노출 서술 갱신 — 낡은 두 문장을 두 부류 계약(UUID 문법 준수 → 단어-속-포함까지 동일 별칭 / 그 외 → 토큰 경계)과 "자격은 E2 술어가 아니다"로, 양성 대조 문단에 파묻힌 UUID·비훼손·타임스탬프/해시/event_id 불변 픽스처 요구와 **잔여 한계 둘**을 넣었다. 더불어 모듈 맵의 `records`(분해 함수·진단 술어·파서 완화)·`recorder`(절단 되물림·형식 진단·폴백) 줄, 전문 저장 금지 항목의 절단 되물림 한 줄, `hooks/` 경계의 collect.py 퇴역, 함정 2건(작업 트리 전역 해석 + import 스모크 / `session_id_format`은 게이트가 아니고 E3 자격과 분리)을 갱신했다
+- [x] 루트 `CLAUDE.md` 비협상 ⑥ 갱신 — 준수 부류 부분문자열 별칭화 + 그 외 토큰 경계 + 잔여 한계 둘
+- [x] 루트 `AGENTS.md`를 `CLAUDE.md` 사본으로 동기화
+- [x] 루트 `HANDOFF.md` — 미결 목록·함정을 이 주기 상태로(E6 완료, E7 대기)
+- [x] **`diff CLAUDE.md AGENTS.md` exit 0** 확인 + `uv run pytest` 520건 통과
 
 작업 대상: [파일] `rejectbench/AGENTS.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`.
 검증 게이트: `diff CLAUDE.md AGENTS.md` exit 0 + `uv run pytest` 전체 통과.
@@ -128,14 +133,14 @@
 
 의존: E2 (스키마 버전 헤더 처리가 7.1 인상 뒤에만 의미가 있다). spec §9.
 
-- [ ] 실패 테스트 먼저: 도구개발/그-외 사건이 섞인 픽스처에서 세 값(전체·도구개발·그-외)이 각각 맞게 나오고, 분모 0 파티션이 `미검증`으로 렌더링됨
-- [ ] 파티션 키 구현: `GuardEvent.project == "reject-bench"` → 도구개발, 그 외 → 그-외
-- [ ] 적용 범위 — `operation_event_ids` 파생 지표 전부: 5개 비율, 운영 사건 수, 판정·검토 미처리/보류 현황, 결정 완료율
-- [ ] 미적용 확인: 손실·정정·강등·손상 줄·총 레코드 수, 시험/unknown/unregistered 집계, 기준선·교정 사이드카는 단일 값 유지. **가드별 표는 기존 `project` 열이 판별자 — 열을 중복 추가하지 않는다**
-- [ ] 대표값이 **그-외**임을 보고서 문면에 렌더링
-- [ ] **합산 검산을 넣지 않는다** — 결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있다(2세션 규칙). 이 사실을 테스트로 고정한다
-- [ ] 스키마 버전 헤더: 기록기 현행 버전 + 스냅샷에 실제 존재하는 버전 집합 병기(둘이 같으면 한 값)
-- [ ] 비노출 계약 회귀 확인: 홈 경로·세션 식별자·사건 id·enforcement 경로·guard_hint 미노출 그대로
+- [x] 실패 테스트 먼저 — `build_partitioned_store`(guard-a 5건·guard-b 2건, 도구개발 3/그-외 4) + 스키마 헤더 3건, 신규 12건 red(import 단계) 확인 후 구현. 전체 532건 통과
+- [x] 파티션 키 — `report.TOOL_DEVELOPMENT_PROJECT = "reject-bench"`, 술어 `_is_tool_development`/`_is_other`
+- [x] 적용 범위 — `metrics`의 `operation_event_ids`·`decidable_event_ids`·`decision_completion`에 `event_filter` 인자를 더해 **같은 정의를 파티션 위에서 재사용**(재정의 없음). `report._operation_metrics`가 한 사건 집합의 `OperationMetrics`(5개 비율·운영 사건 수·미처리/보류·결정 완료율)를 내고 전체·도구개발·그-외 세 벌을 `ReportData.overall/tool_development/other`에 싣는다. 기존 평면 필드는 `overall`과 같은 값(테스트로 고정)
+- [x] 미적용 확인 — 기록 건전성·가드별 현황 절에 파티션 라벨이 없음을 테스트로 고정. 가드별 표는 기존 `project` 열 그대로
+- [x] 대표값 — 상태 절에 `대표값(그-외): …` 줄(분모 0이면 미검증), 대표 지표 절에 `REPRESENTATIVE_PARTITION_MARK`("대표값은 그-외") 문면과 파티션 정의
+- [x] 합산 검산 없음 — guard-b가 파티션을 가로질러서만 판정 가능한 픽스처로 분모 합 0+1 ≠ 2를 테스트로 고정. 보고서 문면에도 "합으로 검산하지 않는다"를 적었다
+- [x] 스키마 버전 헤더 — `schema_versions_present`(스냅샷 실존 집합, 정렬). 같으면(또는 빈 store면) `- 스키마 버전: 7.1`, 다르면 `기록기 현행 7.1 · 스냅샷 실존 7.0, 7.1`. 운영 store 실측: 후자 문면이 실제로 나온다(2026-09-02 새 7.1 사건 1건)
+- [x] 비노출 회귀 — 파티션 픽스처에서 홈 경로·`claude:`·사건 id 0회. **추가(판별력)**: 돌연변이 5종 전부 red(파티션 키 뒤집힘·완료율 필터 무시·운영 사건 필터 무시·스키마 헤더 단일 고정·헤더 항상 병기)
 
 작업 대상: [파일] `rejectbench/report.py`, `tests/test_report.py`.
 검증 게이트: 신규 테스트 red→green + `uv run pytest` 전체 통과(기존 보고서 계약 회귀 포함).

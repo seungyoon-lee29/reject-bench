@@ -18,6 +18,19 @@
 - 기준선 측정 결과는 store 루트의 사이드카 `baseline.json`(단일 JSON 객체)
   에서 읽고, 없으면 "미측정"을 명시한다. 판정기 교정 상태는 사이드카
   `calibration.jsonl`에서 `load_calibrations`로 읽는다.
+- 파티션 (003 spec §9): 시험/운영 분리의 **안쪽**에서 운영 사건을
+  `GuardEvent.project == "reject-bench"`(도구개발) / 그-외로 다시 가르고,
+  `operation_event_ids`에서 파생되는 지표 전부(5개 비율·운영 사건 수·미처리/보류
+  현황·결정 완료율)를 전체·도구개발·그-외 세 값으로 병기한다. **대표값은 그-외**다
+  — 관측 도구를 만드는 세션의 자기차단만으로 성립을 선언하면 대표 주장이 자기생성
+  증거에 얹힌다. 지표 정의는 `metrics`의 단일 정의를 `event_filter`로 재사용할 뿐
+  재정의하지 않는다. 결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있으므로
+  합으로 검산하지 않는다. 손실·정정·강등·손상 줄·총 레코드·출처 집계·기준선·교정
+  사이드카는 파티션 키가 없거나 단위가 운영 사건이 아니라 단일 값이고, 가드별 표는
+  기존 `project` 열이 판별자다.
+- 스키마 버전 헤더는 기록기 현행 버전과 스냅샷에 실제로 존재하는 버전 집합을 함께
+  낸다(같으면 한 값). 7.0/7.1이 섞인 store에서 코드 상수 하나만 찍으면 그 줄이
+  데이터가 아니라 코드 버전을 말하게 된다.
 """
 
 from __future__ import annotations
@@ -33,6 +46,7 @@ from rejectbench.records import SchemaError
 from rejectbench.judge import CALIBRATION_FILENAME, load_calibrations
 from rejectbench.metrics import (
     Completion,
+    EventFilter,
     Status,
     decision_completion,
     operation_event_ids,
@@ -64,6 +78,14 @@ TEST_EVIDENCE_MARK = "기술 검증용 test evidence"
 TEST_EVIDENCE_ONLY_MARK = "test evidence only"
 OPERATION_UNVERIFIED_MARK = "운영: 미검증"
 UNVERIFIED_TEXT = "미검증 (분모 0 — 성공 아님)"
+
+#: 파티션 키 (003 spec §9.1) — 이 저장소에서 난 발동은 관측 도구를 만드는 세션의 자기차단이다.
+TOOL_DEVELOPMENT_PROJECT = "reject-bench"
+PARTITION_OVERALL = "전체"
+PARTITION_TOOL_DEVELOPMENT = "도구개발"
+PARTITION_OTHER = "그-외"
+#: 보고서 문면에 그대로 실리는 대표값 선언.
+REPRESENTATIVE_PARTITION_MARK = f"대표값은 {PARTITION_OTHER}"
 
 
 # --- 원수 병기 ----------------------------------------------------------------
@@ -110,6 +132,22 @@ class PendingStats:
     unprocessed_max_elapsed: timedelta | None
     held: int
     held_max_elapsed: timedelta | None
+
+
+@dataclass(frozen=True)
+class OperationMetrics:
+    """운영 사건 집합 하나 위에서 잰 지표 한 벌 — 전체·도구개발·그-외에 같은 정의를 쓴다."""
+
+    label: str
+    operation_count: int
+    completion: Completion
+    policy_mismatch: Ratio
+    unnecessary_block: Ratio
+    disagreement: Ratio
+    correct_but_unnecessary: Ratio
+    incorrect_but_useful: Ratio
+    verdict_pending: PendingStats
+    review_pending: PendingStats
 
 
 @dataclass(frozen=True)
@@ -174,9 +212,87 @@ class ReportData:
     calibration_rows: tuple[CalibrationRow, ...]
     calibration_record_count: int
     calibration_corrupt_count: int
+    # 003 spec §9 — 같은 정의의 세 벌. 위의 평면 필드는 `overall`과 같은 값이다.
+    overall: OperationMetrics
+    tool_development: OperationMetrics
+    other: OperationMetrics
+    # 스냅샷에 실제로 존재하는 스키마 버전 집합(정렬). 빈 store면 빈 튜플.
+    schema_versions_present: tuple[str, ...]
 
 
 # --- 수집 ---------------------------------------------------------------------
+
+
+def _is_tool_development(event: GuardEvent) -> bool:
+    return event.project == TOOL_DEVELOPMENT_PROJECT
+
+
+def _is_other(event: GuardEvent) -> bool:
+    return not _is_tool_development(event)
+
+
+def _operation_metrics(
+    dataset: Dataset, *, label: str, event_filter: EventFilter, now: datetime
+) -> OperationMetrics:
+    """`metrics`의 단일 정의를 한 사건 집합 위에서 그대로 재는 자리 — 재정의 없음."""
+    op_ids = operation_event_ids(dataset, event_filter=event_filter)
+    verdict_confirmed = [
+        event_id for event_id in op_ids if verdict_status(dataset, event_id) is Status.CONFIRMED
+    ]
+    review_confirmed = [
+        event_id for event_id in op_ids if review_status(dataset, event_id) is Status.CONFIRMED
+    ]
+    review_set = set(review_confirmed)
+    both_confirmed = [event_id for event_id in verdict_confirmed if event_id in review_set]
+
+    def _verdict(event_id: str) -> Verdict:
+        return dataset.latest_verdict(event_id).verdict
+
+    def _utility(event_id: str) -> Utility:
+        return dataset.latest_review(event_id).utility
+
+    incorrect = sum(
+        1 for event_id in verdict_confirmed if _verdict(event_id) is Verdict.INCORRECT_BLOCK
+    )
+    unnecessary = sum(
+        1 for event_id in review_confirmed if _utility(event_id) is Utility.UNNECESSARY
+    )
+    correct_unnecessary = sum(
+        1
+        for event_id in both_confirmed
+        if _verdict(event_id) is Verdict.CORRECT_BLOCK
+        and _utility(event_id) is Utility.UNNECESSARY
+    )
+    incorrect_useful = sum(
+        1
+        for event_id in both_confirmed
+        if _verdict(event_id) is Verdict.INCORRECT_BLOCK
+        and _utility(event_id) is Utility.USEFUL
+    )
+    return OperationMetrics(
+        label=label,
+        operation_count=len(op_ids),
+        completion=decision_completion(dataset, event_filter=event_filter),
+        policy_mismatch=Ratio(incorrect, len(verdict_confirmed)),
+        unnecessary_block=Ratio(unnecessary, len(review_confirmed)),
+        disagreement=Ratio(correct_unnecessary + incorrect_useful, len(both_confirmed)),
+        correct_but_unnecessary=Ratio(correct_unnecessary, len(both_confirmed)),
+        incorrect_but_useful=Ratio(incorrect_useful, len(both_confirmed)),
+        verdict_pending=_pending_stats(
+            dataset,
+            op_ids,
+            now=now,
+            status_of=verdict_status,
+            held_time_of=lambda ds, event_id: ds.latest_verdict(event_id).judged_at,
+        ),
+        review_pending=_pending_stats(
+            dataset,
+            op_ids,
+            now=now,
+            status_of=review_status,
+            held_time_of=lambda ds, event_id: ds.latest_review(event_id).reviewed_at,
+        ),
+    )
 
 
 def new_guard_ids(dataset: Dataset) -> frozenset[str]:
@@ -277,45 +393,12 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
     load = store.load()
     dataset = Dataset(load.records)
 
-    op_ids = operation_event_ids(dataset)
-    verdict_confirmed = [
-        event_id
-        for event_id in op_ids
-        if verdict_status(dataset, event_id) is Status.CONFIRMED
-    ]
-    review_confirmed = [
-        event_id
-        for event_id in op_ids
-        if review_status(dataset, event_id) is Status.CONFIRMED
-    ]
-    both_confirmed = [
-        event_id for event_id in verdict_confirmed if event_id in set(review_confirmed)
-    ]
-
-    def _verdict(event_id: str) -> Verdict:
-        return dataset.latest_verdict(event_id).verdict
-
-    def _utility(event_id: str) -> Utility:
-        return dataset.latest_review(event_id).utility
-
-    incorrect = sum(
-        1 for event_id in verdict_confirmed if _verdict(event_id) is Verdict.INCORRECT_BLOCK
+    # 같은 정의의 세 벌 — 전체, 도구개발(자기차단), 그-외(대표값). 합으로 검산하지 않는다.
+    overall = _operation_metrics(dataset, label=PARTITION_OVERALL, event_filter=None, now=now)
+    tool_development = _operation_metrics(
+        dataset, label=PARTITION_TOOL_DEVELOPMENT, event_filter=_is_tool_development, now=now
     )
-    unnecessary = sum(
-        1 for event_id in review_confirmed if _utility(event_id) is Utility.UNNECESSARY
-    )
-    correct_unnecessary = sum(
-        1
-        for event_id in both_confirmed
-        if _verdict(event_id) is Verdict.CORRECT_BLOCK
-        and _utility(event_id) is Utility.UNNECESSARY
-    )
-    incorrect_useful = sum(
-        1
-        for event_id in both_confirmed
-        if _verdict(event_id) is Verdict.INCORRECT_BLOCK
-        and _utility(event_id) is Utility.USEFUL
-    )
+    other = _operation_metrics(dataset, label=PARTITION_OTHER, event_filter=_is_other, now=now)
 
     # 사건 출처 집계 — unregistered는 출처와 무관하게 별도, 나머지는 유효 출처.
     test_count = unknown_count = unregistered_count = 0
@@ -328,21 +411,6 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
             test_count += 1
         elif effective is Origin.UNKNOWN:
             unknown_count += 1
-
-    verdict_pending = _pending_stats(
-        dataset,
-        op_ids,
-        now=now,
-        status_of=verdict_status,
-        held_time_of=lambda ds, event_id: ds.latest_verdict(event_id).judged_at,
-    )
-    review_pending = _pending_stats(
-        dataset,
-        op_ids,
-        now=now,
-        status_of=review_status,
-        held_time_of=lambda ds, event_id: ds.latest_review(event_id).reviewed_at,
-    )
 
     losses = [record for record in load.records if isinstance(record, LossRecord)]
     loss_by_kind = tuple(
@@ -407,18 +475,18 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
         generated_at=now,
         record_count=len(load.records),
         corrupt_line_count=len(load.corrupt),
-        completion=decision_completion(dataset),
-        policy_mismatch=Ratio(incorrect, len(verdict_confirmed)),
-        unnecessary_block=Ratio(unnecessary, len(review_confirmed)),
-        disagreement=Ratio(correct_unnecessary + incorrect_useful, len(both_confirmed)),
-        correct_but_unnecessary=Ratio(correct_unnecessary, len(both_confirmed)),
-        incorrect_but_useful=Ratio(incorrect_useful, len(both_confirmed)),
-        operation_count=len(op_ids),
+        completion=overall.completion,
+        policy_mismatch=overall.policy_mismatch,
+        unnecessary_block=overall.unnecessary_block,
+        disagreement=overall.disagreement,
+        correct_but_unnecessary=overall.correct_but_unnecessary,
+        incorrect_but_useful=overall.incorrect_but_useful,
+        operation_count=overall.operation_count,
         test_count=test_count,
         unknown_count=unknown_count,
         unregistered_count=unregistered_count,
-        verdict_pending=verdict_pending,
-        review_pending=review_pending,
+        verdict_pending=overall.verdict_pending,
+        review_pending=overall.review_pending,
         loss_total=len(losses),
         loss_by_kind=loss_by_kind,
         partial_capture_count=partial,
@@ -434,10 +502,33 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
         calibration_rows=calibration_rows,
         calibration_record_count=calibration_count,
         calibration_corrupt_count=calibration_corrupt,
+        overall=overall,
+        tool_development=tool_development,
+        other=other,
+        schema_versions_present=tuple(
+            sorted({record.schema_version for record in load.records}, key=_version_key)
+        ),
     )
 
 
 # --- 렌더링 -------------------------------------------------------------------
+
+
+def _three(data: ReportData, pick) -> str:
+    """전체 값 뒤에 두 파티션 값을 병기한다 — 세 값 다 같은 정의다."""
+    return (
+        f"{pick(data.overall)} — {PARTITION_TOOL_DEVELOPMENT} {pick(data.tool_development)} · "
+        f"{PARTITION_OTHER} {pick(data.other)}"
+    )
+
+
+def _schema_version_line(data: ReportData) -> str:
+    present = data.schema_versions_present
+    if not present or present == (SCHEMA_VERSION,):
+        return f"- 스키마 버전: {SCHEMA_VERSION}"
+    return (
+        f"- 스키마 버전: 기록기 현행 {SCHEMA_VERSION} · 스냅샷 실존 {', '.join(present)}"
+    )
 
 
 def _format_elapsed(delta: timedelta) -> str:
@@ -458,15 +549,25 @@ def _pending_text(count: int, elapsed: timedelta | None) -> str:
     return f"{count}건 (최장 경과 {_format_elapsed(elapsed)})"
 
 
+def _version_key(version: str) -> tuple:
+    """스키마 버전 정렬 키 — 문자열 정렬은 `7.10`을 `7.2` 앞에 둔다."""
+    return tuple(int(part) if part.isdigit() else part for part in version.split("."))
+
+
 def render_report(data: ReportData) -> str:
-    completion_ratio = Ratio(data.completion.numerator, data.completion.denominator)
     lines: list[str] = []
     add = lines.append
+
+    def completion_of(metrics: OperationMetrics) -> Ratio:
+        return Ratio(metrics.completion.numerator, metrics.completion.denominator)
+
+    completion_ratio = completion_of(data.overall)
+    representative = completion_of(data.other)
 
     add("# Reject Bench 보고서")
     add("")
     add(f"- 생성 시각: {data.generated_at.isoformat()} (UTC)")
-    add(f"- 스키마 버전: {SCHEMA_VERSION}")
+    add(_schema_version_line(data))
     add(
         f"- 레코드: {data.record_count}건 ({RECORDS_FILENAME} — "
         "경로는 store 루트 상대 표기만 쓴다)"
@@ -479,6 +580,16 @@ def render_report(data: ReportData) -> str:
         add(f"- {OPERATION_UNVERIFIED_MARK} — 판정 가능 가드 0 (분모 0은 성공이 아니다)")
     else:
         add(f"- 운영: 증거 기반 결정 완료율 {completion_ratio.render()}")
+    if representative.unverified:
+        add(
+            f"- 대표값({PARTITION_OTHER}): 미검증 — {PARTITION_OTHER} 판정 가능 가드 0 "
+            "(분모 0은 성공이 아니다). 관찰 종료 조건은 이 값으로 판정한다."
+        )
+    else:
+        add(
+            f"- 대표값({PARTITION_OTHER}): 증거 기반 결정 완료율 {representative.render()} "
+            "— 관찰 종료 조건은 이 값으로 판정한다."
+        )
     add(
         f"- 기술 검증: 시험 사건 {data.test_count}건 — \"기술 검증\" 절 참조 "
         "(운영 지표 제외)"
@@ -489,34 +600,53 @@ def render_report(data: ReportData) -> str:
     add("")
     add("증거 기반 결정 완료율 = 결정과 근거가 기록된 판정 가능 가드 / 판정 가능 가드")
     add("")
-    add(f"- 값: {completion_ratio.render()}")
+    add(f"- 값: {_three(data, lambda m: completion_of(m).render())}")
     add(
         "- 판정 가능 가드: 서로 다른 둘 이상의 operation 세션 사건이 있고, 그 사건들의 "
         "정책 판정·유용성 검토가 모두 확정값인 가드. 분자는 이 분모의 부분집합으로만 센다."
+    )
+    add(
+        f"- 파티션: {PARTITION_TOOL_DEVELOPMENT} = `project == \"{TOOL_DEVELOPMENT_PROJECT}\"` "
+        f"(관측 도구를 만드는 세션의 자기차단) / {PARTITION_OTHER} = 나머지. "
+        f"**{REPRESENTATIVE_PARTITION_MARK}**다 — 자기차단만으로 성립을 선언하면 대표 주장이 "
+        "자기생성 증거에 얹힌다 (docs/관찰-프로토콜.md 변경 기록 ⑤). 분모 0은 파티션 안에서도 "
+        "미검증이다."
+    )
+    add(
+        "- 파티션 키의 한계: `project`는 훅 cwd의 basename이라 이 저장소의 하위 디렉터리·"
+        f"워크트리 cwd는 {PARTITION_OTHER}로 간다 — {PARTITION_OTHER} 대표값이 성립하면 근거 사건의 "
+        "`project`를 수동 확인한다 (003 spec §9.1). 결정 완료율은 근거 사건이 전부 그 파티션 "
+        "안에 있을 때만 결정으로 센다 (§9.6)."
+    )
+    add(
+        "- 합으로 검산하지 않는다: 결정 완료율은 가드 단위라 한 가드가 전체에서는 판정 가능"
+        "(서로 다른 2세션)이면서 어느 파티션 안에서도 판정 불가일 수 있다."
     )
     add("")
 
     add("## 진단 지표")
     add("")
+    add(f"각 값은 {PARTITION_OVERALL} — {PARTITION_TOOL_DEVELOPMENT} · {PARTITION_OTHER} 순이다.")
+    add("")
     add(
         "- 정책 불일치율 (incorrect_block / 정책 판정 확정 operation 사건): "
-        f"{data.policy_mismatch.render()}"
+        f"{_three(data, lambda m: m.policy_mismatch.render())}"
     )
     add(
         "- 사용자 불필요 차단율 (unnecessary / 유용성 검토 확정 operation 사건): "
-        f"{data.unnecessary_block.render()}"
+        f"{_three(data, lambda m: m.unnecessary_block.render())}"
     )
     add(
         "- LLM-사용자 불일치율 (방향 불일치 / 두 판단 확정 operation 사건): "
-        f"{data.disagreement.render()}"
+        f"{_three(data, lambda m: m.disagreement.render())}"
     )
     add(
         "  - 방향 — 정책상 옳은 차단 + 사용자 불필요: "
-        f"{data.correct_but_unnecessary.render()}"
+        f"{_three(data, lambda m: m.correct_but_unnecessary.render())}"
     )
     add(
         "  - 방향 — 정책상 그른 차단 + 사용자 유용: "
-        f"{data.incorrect_but_useful.render()}"
+        f"{_three(data, lambda m: m.incorrect_but_useful.render())}"
     )
     add(
         "- 보류값(insufficient_context·uncertain)과 미처리 사건은 세 지표의 분모에서 "
@@ -532,6 +662,10 @@ def render_report(data: ReportData) -> str:
         f"unregistered {data.unregistered_count}"
     )
     add(
+        f"- operation 사건 파티션: {PARTITION_TOOL_DEVELOPMENT} {data.tool_development.operation_count} · "
+        f"{PARTITION_OTHER} {data.other.operation_count}"
+    )
+    add(
         "- test·unknown·unregistered 사건은 운영 지표의 분자·분모에 들어가지 않는다. "
         "미등록(unregistered) 발동은 출처와 무관하게 건수만 병기한다."
     )
@@ -539,18 +673,18 @@ def render_report(data: ReportData) -> str:
 
     add("## 미처리와 보류")
     add("")
-    add(
-        "- PolicyVerdict — 미처리 "
-        f"{_pending_text(data.verdict_pending.unprocessed, data.verdict_pending.unprocessed_max_elapsed)}"
-        " · 보류(insufficient_context) "
-        f"{_pending_text(data.verdict_pending.held, data.verdict_pending.held_max_elapsed)}"
-    )
-    add(
-        "- UtilityReview — 미처리 "
-        f"{_pending_text(data.review_pending.unprocessed, data.review_pending.unprocessed_max_elapsed)}"
-        " · 보류(uncertain) "
-        f"{_pending_text(data.review_pending.held, data.review_pending.held_max_elapsed)}"
-    )
+
+    def pending_line(pending_of, held_label: str) -> str:
+        return _three(
+            data,
+            lambda m: (
+                f"미처리 {_pending_text(pending_of(m).unprocessed, pending_of(m).unprocessed_max_elapsed)}"
+                f" · 보류({held_label}) {_pending_text(pending_of(m).held, pending_of(m).held_max_elapsed)}"
+            ),
+        )
+
+    add(f"- PolicyVerdict — {pending_line(lambda m: m.verdict_pending, 'insufficient_context')}")
+    add(f"- UtilityReview — {pending_line(lambda m: m.review_pending, 'uncertain')}")
     add("")
 
     add("## 기록 건전성")
