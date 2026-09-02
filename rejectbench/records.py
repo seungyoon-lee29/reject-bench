@@ -10,13 +10,17 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from enum import StrEnum
 
 from rejectbench.hashing import content_hash
 
-SCHEMA_VERSION = "7.0"
+# 7.1 (003 spec §4.7): GuardEvent에 `session_id_format`이 생겼다. 인상은 전역 상수
+# 일괄이라 7종 레코드와 judge 사이드카 전부에 찍히지만, **이 값을 소비하는 코드
+# 경로는 없다** — 구형(7.0) 수용 판별은 버전이 아니라 필드 부재 기준이다.
+SCHEMA_VERSION = "7.1"
 
 _MAX_LOSS_DETAIL = 500  # 원문 없는 최소 메타데이터 강제
 
@@ -72,6 +76,68 @@ class LossKind(StrEnum):
     WRITE_FAILURE = "write_failure"
     PARTIAL_CAPTURE = "partial_capture"
     VERDICT_FAILURE = "verdict_failure"
+
+
+# --- 세션 ID 적재 형식 (003 spec §4) ------------------------------------------
+#
+# 저장 세션 ID는 복합값 `harness:원본`이다. 형식 검사는 **원본 부분에만** 걸리고,
+# 결과는 진단 필드일 뿐이다 — 저장값·origin·가드 결과를 바꾸지 않는다.
+
+
+class SessionIdFormat(StrEnum):
+    """`GuardEvent.session_id_format` — 3상, `null` 불허 (spec §4.4)."""
+
+    CONFORMING = "conforming"
+    NONCONFORMING = "nonconforming"
+    # 자리표시(맥락 부재) · 7.0 구형(필드 부재) · 검사 술어 예외 — 세 사유를 합친다.
+    # 진단력보다 사건 보존이 우선이고, 세 사유는 각각 capture_status·스키마 버전·
+    # 손실 흔적으로 따로 남는다.
+    UNCHECKED = "unchecked"
+
+
+@dataclass(frozen=True)
+class SessionIdRawRule:
+    """§4.3 형식 술어 파라미터 — 명명 상수 한 곳.
+
+    변경은 사유 있는 계약 개정으로만 하며, 그때 UUID 준수 테스트와 E3 양성
+    대조를 재실행한다. 이 술어는 **E2 진단 전용**이다 — E3의 가림 자격은 UUID
+    문법으로 따로 정의하므로 여기를 튜닝해도 E3 보장 범위는 바뀌지 않는다.
+    """
+
+    min_len: int
+    max_len: int
+    charset: str  # 정규식 문자 클래스 본문 — 하이픈이 있어야 UUID가 충족한다
+
+    def matches(self, raw: str) -> bool:
+        # fullmatch — `$` 앵커는 끝 개행을 통과시킨다.
+        return re.fullmatch(rf"[{self.charset}]{{{self.min_len},{self.max_len}}}", raw) is not None
+
+
+SESSION_ID_RAW_RULE = SessionIdRawRule(min_len=8, max_len=128, charset="A-Za-z0-9_-")
+
+
+def split_session_id(session_id: str) -> tuple[str, str | None]:
+    """복합값 분해 — 첫 `:` 이전이 harness, **그 이후 전부**가 원본 (spec §4.1).
+
+    `:`가 없으면 원본 부분이 없다(`None`). §4의 형식 검사와 §5(E3)의 needle
+    산출이 **이 한 함수**를 쓴다 — 분해가 갈라지면 두 절이 다른 값을 본다.
+    """
+    harness, separator, raw = session_id.partition(":")
+    return (harness, raw) if separator else (session_id, None)
+
+
+def session_id_format(session_id: str) -> SessionIdFormat:
+    """§4 진단 술어 — 원본 부분만 검사한다.
+
+    자리표시(맥락 부재)는 값의 모양이 아니라 호출자가 아는 맥락으로 가르므로
+    여기서는 판별하지 않는다 — 기록기가 `unchecked`를 직접 놓는다.
+    """
+    _, raw = split_session_id(session_id)
+    if raw is None:
+        return SessionIdFormat.NONCONFORMING
+    if SESSION_ID_RAW_RULE.matches(raw):
+        return SessionIdFormat.CONFORMING
+    return SessionIdFormat.NONCONFORMING
 
 
 def _require_utc(value, name: str) -> None:
@@ -267,6 +333,8 @@ class GuardEvent:
     guard_hint: str | None = None
     drift: bool = False  # 구현물 해시 ≠ enforcement_ref (감지는 T3/T5)
     post_remove: bool = False  # remove 결정 뒤 발동 (감지는 T5)
+    # 003 spec §4 — 진단 필드. 기본값 unchecked는 "검사하지 않았다"는 사실 그대로다.
+    session_id_format: SessionIdFormat = SessionIdFormat.UNCHECKED
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self):
@@ -285,6 +353,7 @@ class GuardEvent:
                 f"{self.origin_evidence.value})"
             )
         _require_enum(self.capture_status, CaptureStatus, "capture_status")
+        _require_enum(self.session_id_format, SessionIdFormat, "session_id_format")
         for name in ("unregistered", "drift", "post_remove"):
             if not isinstance(getattr(self, name), bool):
                 raise SchemaError(f"{name}: bool이어야 한다")
@@ -556,6 +625,7 @@ def _event_to_json(r: GuardEvent) -> dict:
         "guard_hint": r.guard_hint,
         "drift": r.drift,
         "post_remove": r.post_remove,
+        "session_id_format": r.session_id_format.value,
     }
 
 
@@ -585,6 +655,9 @@ def _event_from_json(p: dict) -> GuardEvent:
         guard_hint=p["guard_hint"],
         drift=p["drift"],
         post_remove=p["post_remove"],
+        session_id_format=_parse_enum(
+            p["session_id_format"], SessionIdFormat, "session_id_format"
+        ),
         schema_version=p["schema_version"],
     )
 
@@ -751,6 +824,20 @@ def _expected_keys(record_type: str) -> set[str]:
     return {f.name for f in fields(cls)}
 
 
+# 7.0 구형 수용 (003 spec §4.8) — `guard_event`이고 누락 키가 **이것 하나**일 때만
+# `unchecked`로 읽는다. 다른 필드 누락·초과 키·다른 record_type은 여전히 손상 줄이다.
+# 완화가 없으면 손상되는 것은 guard_event 줄뿐이라 등록부는 멀쩡해 보이면서
+# 운영 지표의 분모·사건 목록·검토 큐에서 사건이 조용히 사라진다.
+_LEGACY_EVENT_KEY = "session_id_format"
+
+
+def _accept_legacy_event(payload: dict, missing: set[str], extra: set[str]) -> dict | None:
+    if payload.get("record_type") != "guard_event" or extra or missing != {_LEGACY_EVENT_KEY}:
+        return None
+    # 호출자의 dict를 바꾸지 않는다 — 기존 저장 레코드는 한 건도 재작성하지 않는다.
+    return {**payload, _LEGACY_EVENT_KEY: SessionIdFormat.UNCHECKED.value}
+
+
 def to_json(record: Record) -> dict:
     for cls, (_, serializer) in _SERIALIZERS.items():
         if isinstance(record, cls):
@@ -767,11 +854,14 @@ def record_from_json(payload: dict) -> Record:
     keys = set(payload) - {"record_type"}
     expected = _expected_keys(record_type)
     if keys != expected:
-        missing = sorted(expected - keys)
-        extra = sorted(keys - expected)
-        raise SchemaError(
-            f"{record_type}: 키 불일치 (누락 {missing}, 초과 {extra})"
-        )
+        missing = expected - keys
+        extra = keys - expected
+        accepted = _accept_legacy_event(payload, missing, extra)
+        if accepted is None:
+            raise SchemaError(
+                f"{record_type}: 키 불일치 (누락 {sorted(missing)}, 초과 {sorted(extra)})"
+            )
+        payload = accepted
     _, parser = _PARSERS[record_type]
     try:
         return parser(payload)

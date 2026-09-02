@@ -35,6 +35,9 @@ from rejectbench.records import (
     GuardSpec,
     LossKind,
     LossRecord,
+    SessionIdFormat,
+    session_id_format,
+    split_session_id,
 )
 from rejectbench.registry import GuardRegistry, enforcement_ref_for
 from rejectbench.scrub import redact_command_echo, scrub_text
@@ -229,10 +232,17 @@ def _home_path(env: Mapping[str, str]) -> str:
 
 
 def _sensitive_values(
-    *, env: Mapping[str, str], session_id: str, session_raw: str | None
+    *, env: Mapping[str, str], session_id: str, context_available: bool
 ) -> tuple[str, ...]:
-    """적재 시점에 아는 민감값 — 홈 절대 경로·복합 세션 ID·원본 세션 ID."""
-    candidates = (_home_path(env), session_id, session_raw or "")
+    """적재 시점에 아는 민감값 — 홈 절대 경로·복합 세션 ID·원본 세션 ID.
+
+    원본은 페이로드가 아니라 저장 복합값을 `split_session_id`로 되분해해 얻는다
+    — needle 산출이 §4 형식 검사·§5 조회 경계와 한 함수를 쓰게 하기 위해서다.
+    자리표시(`harness:unknown`)의 원본 부분은 민감값이 아니다: 일반 단어
+    `unknown`을 needle로 삼으면 사유가 부당하게 줄어든다.
+    """
+    _, raw = split_session_id(session_id)
+    candidates = (_home_path(env), session_id, raw if context_available and raw else "")
     return tuple(dict.fromkeys(value for value in candidates if value))
 
 
@@ -349,9 +359,7 @@ def assemble_event(
         scrubbed = _truncate_reason(
             scrubbed,
             _sensitive_values(
-                env=env,
-                session_id=session_id,
-                session_raw=session_raw if context_available else None,
+                env=env, session_id=session_id, context_available=context_available
             ),
         )
     except Exception:
@@ -370,8 +378,22 @@ def assemble_event(
         origin_evidence=evidence,
         capture_status=capture,
         drift=drift,
+        session_id_format=_session_id_format(session_id, context_available),
         **guard_fields,
     )
+
+
+def _session_id_format(session_id: str, context_available: bool) -> SessionIdFormat:
+    """§4 진단값 — 자리표시는 미검사, 술어 예외도 미검사(사건 보존 우선, spec §4.6).
+
+    이 폴백도 assemble_event 안에서 닫힌다 — 검사·표시가 기록 실패로 새면 안 된다.
+    """
+    if not context_available:
+        return SessionIdFormat.UNCHECKED
+    try:
+        return session_id_format(session_id)
+    except Exception:
+        return SessionIdFormat.UNCHECKED
 
 
 # --- 기록 (비블로킹) ---------------------------------------------------------

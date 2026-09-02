@@ -18,6 +18,7 @@ from rejectbench import (
     LossRecord,
     Origin,
     OriginEvidence,
+    SessionIdFormat,
     enforcement_ref_for,
     production_root,
 )
@@ -700,3 +701,86 @@ def test_truncation_bounds_are_one_ratio_apart():
     assert recorder._MIN_REASON_RATIO == 0.5
     assert recorder._MIN_REASON == FLOOR
     assert recorder._TRUNCATION_MARKER == MARKER
+
+
+# --- 세션 ID 적재 형식 (003 spec §4) -------------------------------------------
+#
+# 이 태스크는 관찰만 더한다 — 저장 세션 ID 값·origin 규칙·가드 발동 결과는 어떤
+# 경로에서도 불변이고, 검사가 예외를 던져도 사건은 LossRecord로 강등되지 않는다.
+
+
+def test_uuid_session_id_is_recorded_as_conforming(tmp_path):
+    store, _ = record(tmp_path, payload_text=payload_text(session_id=SESSION_RAW))
+    (event,) = loaded_events(store)
+    assert event.session_id == SESSION_ID
+    assert event.session_id_format is SessionIdFormat.CONFORMING
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "abcdefg",  # 7자
+        "a" * 129,  # 129자
+        "abcd.efgh",  # 금지 문자
+        "abcd efgh",  # 공백도 금지 문자다
+    ],
+)
+def test_nonconforming_raw_id_is_flagged_but_everything_else_is_unchanged(tmp_path, raw):
+    store, outcome = record(tmp_path, payload_text=payload_text(session_id=raw))
+    assert outcome.blocked and outcome.recorded
+    (event,) = loaded_events(store)
+    assert event.session_id_format is SessionIdFormat.NONCONFORMING
+    assert event.session_id == f"claude:{raw}"  # 저장값 불변 — 정규화·거부 없음
+    assert event.origin is Origin.OPERATION
+    assert event.origin_evidence is OriginEvidence.DEFAULT_INHERITED
+    assert event.capture_status is CaptureStatus.COMPLETE
+
+
+def test_placeholder_session_is_unchecked_not_nonconforming(tmp_path):
+    """자리표시(맥락 부재)는 검사 대상이 아니다 — `unknown`이 7자라서가 아니다."""
+    store, _ = record(tmp_path, payload_text=payload_text(session_id=None))
+    (event,) = loaded_events(store)
+    assert event.session_id == "claude:unknown"
+    assert event.session_id_format is SessionIdFormat.UNCHECKED
+    assert event.capture_status is CaptureStatus.PARTIAL
+
+
+def test_format_check_failure_records_unchecked_and_changes_nothing_else(tmp_path, monkeypatch):
+    """검사 술어가 죽어도 사건은 정상 기록된다 (spec §4.6) — LossRecord 강등 없음."""
+
+    def boom(*args, **kwargs):
+        raise ValueError("검사 결함")
+
+    monkeypatch.setattr(recorder, "session_id_format", boom)
+    store, outcome = record(tmp_path, payload_text=payload_text(session_id=SESSION_RAW))
+    assert outcome.blocked and outcome.recorded and not outcome.loss_recorded
+    result = store.load()
+    assert not result.corrupt
+    assert not [r for r in result.records if isinstance(r, LossRecord)]
+    (event,) = [r for r in result.records if isinstance(r, GuardEvent)]
+    assert event.session_id_format is SessionIdFormat.UNCHECKED
+    assert event.session_id == SESSION_ID
+    assert event.origin is Origin.OPERATION
+    assert event.origin_evidence is OriginEvidence.DEFAULT_INHERITED
+    assert event.capture_status is CaptureStatus.COMPLETE
+
+
+def test_placeholder_raw_part_is_not_a_truncation_needle(tmp_path):
+    """needle을 분해 함수로 모아도 자리표시 `unknown`은 민감값이 아니다.
+
+    `unknown`이 needle이면 절단점이 3996으로 되물린다. 자리표시는 E3에서도
+    준수 부류가 아니고, 일반 단어를 민감값으로 삼으면 사유가 부당하게 줄어든다.
+    공백류가 없는 입력이라 정상 경로는 맹목 절단점(4000) 그대로다.
+    """
+    text = dense(3996) + "unknown" + dense(200)
+    assert 3996 < MAX < 3996 + len("unknown")  # 픽스처가 실제로 경계를 가로지른다
+    store, outcome = record(
+        tmp_path,
+        payload_text=payload_text(session_id=None),
+        result=blocked(text),
+        env={"HOME": HOME},
+    )
+    assert outcome.recorded
+    (event,) = loaded_events(store)
+    assert event.reason == text[:MAX] + MARKER
+    assert event.reason != dense(3996) + MARKER

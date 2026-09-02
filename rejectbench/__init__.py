@@ -85,6 +85,7 @@ from rejectbench.recorder import (
 )
 from rejectbench.records import (
     SCHEMA_VERSION,
+    SESSION_ID_RAW_RULE,
     ActionSummary,
     Amendment,
     CaptureStatus,
@@ -100,10 +101,14 @@ from rejectbench.records import (
     PolicyVerdict,
     Record,
     SchemaError,
+    SessionIdFormat,
+    SessionIdRawRule,
     Utility,
     UtilityReview,
     Verdict,
     record_from_json,
+    session_id_format,
+    split_session_id,
     to_json,
 )
 from rejectbench.report import (
@@ -178,6 +183,7 @@ __all__ = [
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_SETTINGS",
     "SCHEMA_VERSION",
+    "SESSION_ID_RAW_RULE",
     "ORIGIN_FIELD",
     "FALLBACK_DIR_ENV",
     "FALLBACK_FILENAME",
@@ -242,6 +248,8 @@ __all__ = [
     "ReviewError",
     "ReviewQueue",
     "SchemaError",
+    "SessionIdFormat",
+    "SessionIdRawRule",
     "SpecReferenceError",
     "Status",
     "TransportError",
@@ -302,6 +310,8 @@ __all__ = [
     "rubric_hash",
     "run_judge",
     "scrub_text",
+    "session_id_format",
+    "split_session_id",
     "to_json",
     "validate_decision_inputs",
     "validate_origin_transition",

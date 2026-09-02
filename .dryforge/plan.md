@@ -56,13 +56,15 @@
 
 의존: E1 (같은 파일 연쇄 수정). spec §4.
 
-- [ ] 실패 테스트 먼저: UUID 준수 / 7자·129자·금지 문자 비준수 / `:` 없는 값 비준수 / 자리표시 `unchecked` / 검사 예외 주입 시 `unchecked` + 기록 불변 / **구 형식(7.0, 필드 부재) JSON 파싱 → `unchecked` 적재·손상 줄 0건** / **`guard_event`의 다른 필드 누락과 타 record_type 필드 누락은 여전히 손상 줄**
-- [ ] 복합값 분해 함수 구현(첫 `:` 기준, 이후 전부가 원본) — **E3가 재사용할 위치에**
-- [ ] 형식 술어 구현(원본 부분 대상, 8~128자 `[A-Za-z0-9_-]`) — 파라미터는 명명 상수 한 곳
-- [ ] `GuardEvent.session_id_format` 추가, 값 enum `conforming`/`nonconforming`/`unchecked`(`null` 불허)
-- [ ] `SCHEMA_VERSION` 7.1 인상 — 전역 상수 일괄(7종 + `judge.py` 사이드카)
-- [ ] 파서 완화: `record_type == "guard_event"`이고 누락 키가 `session_id_format` **하나**일 때만 `unchecked`로 수용
-- [ ] **import 스모크**: `python -c "import rejectbench.wrapper"` 성공
+- [x] 실패 테스트 먼저: 요구된 7종 전부 + 경계(8자·128자·둘째 콜론·harness 부분 무검사)·초과 키·호출자 dict 무변경·store 수준 손상 줄 대조를 더해 39건(records 31·recorder 8). 두 슬라이스(records → recorder) 각각 red 확인 후 구현
+- [x] 복합값 분해 함수 구현 — `records.split_session_id`(`str.partition` 첫 `:`, 없으면 원본 `None`). `records`는 `recorder`·`mcp_server` 둘 다 이미 import하는 최경량 모듈이라 E3가 그대로 쓴다. `recorder._sensitive_values`의 원본 needle도 이 함수로 모았다(E1 적대 검증 지적 반영) — 단 자리표시는 needle에서 뺀다
+- [x] 형식 술어 구현 — `records.session_id_format`(원본 부분만, `re.fullmatch`). 파라미터는 `SESSION_ID_RAW_RULE = SessionIdRawRule(8, 128, "A-Za-z0-9_-")` 한 곳. 값 회귀는 리터럴 단언(`test_rule_parameters_are_one_named_constant`)
+- [x] `GuardEvent.session_id_format` 추가 — `SessionIdFormat` StrEnum 3상, `_require_enum`으로 `null`·문자열 거부. dataclass 기본값 `unchecked`(검사 안 한 사실 그대로). 기록기는 자리표시 → `unchecked`, 술어 예외 → `unchecked`(폴백은 `assemble_event` 안 `_session_id_format`에서 닫힘, LossRecord 0건 확인)
+- [x] `SCHEMA_VERSION` 7.1 인상 — 전역 상수 한 줄. 7종 + `JudgeCalibration` 기본값이 7.1을 따름을 테스트로 고정. 어떤 코드 경로도 이 값을 소비하지 않는다
+- [x] 파서 완화 — `records._accept_legacy_event`: `guard_event` ∧ 누락 == {`session_id_format`} ∧ 초과 없음일 때만 사본에 `unchecked`를 채운다. 다른 키 누락·초과 키·타 record_type은 여전히 `SchemaError` → 손상 줄(store 수준에서 줄 번호까지 대조)
+- [x] **import 스모크**: 저장소 밖 cwd에서 `IMPORT OK` (슬라이스마다 + 커밋 직전, 3회)
+- [x] **사건 수 보존**(운영 store 읽기 전용, 완화 전후 대조): guard_event 7·손상 줄 0·operation 6·판정 가능 4·검토 큐 0·완료율 0/1·등록부 2가드 전부 동일. 실존 스키마 버전은 `{7.0}` 그대로(재작성 없음)
+- [x] **추가(판별력)**: 돌연변이 13종 중 12종 red — 초과 키 무시·`$` 앵커·하이픈 탈락·하한/상한 off-by-one·마지막 콜론 분해·예외 미포착·자리표시 검사·미검사·예외→conforming·needle 자리표시 포함·needle 원본 누락. `record_type` 검사 제거 1종은 등가 돌연변이(타 레코드는 그 키를 기대하지 않는다). "마지막 콜론" 돌연변이를 형식값 수준에서 가르는 픽스처(`codex:run:<uuid>` → 비준수)를 이 과정에서 추가했다
 
 작업 대상: [파일] `rejectbench/records.py`, `rejectbench/recorder.py`, `tests/test_records.py`, `tests/test_recorder.py`.
 검증 게이트: 신규 테스트 red→green + 전체 통과(기존 직렬화·파싱 회귀 포함) + **사건 수 보존** — 완화 전후로 등록부·지표 분모·검토 큐의 사건 수가 같고 손상 줄 수가 늘지 않음 + import 스모크.
