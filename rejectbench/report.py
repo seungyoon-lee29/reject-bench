@@ -43,7 +43,7 @@ from pathlib import Path
 from rejectbench.dataset import Dataset
 from rejectbench.decision import build_guard_view, post_remove_event_ids
 from rejectbench.records import SchemaError
-from rejectbench.judge import CALIBRATION_FILENAME, load_calibrations
+from rejectbench.judge import CALIBRATION_FILENAME, DEFAULT_MODEL_ID, load_calibrations
 from rejectbench.metrics import (
     Completion,
     EventFilter,
@@ -81,6 +81,11 @@ UNVERIFIED_TEXT = "미검증 (분모 0 — 성공 아님)"
 
 #: 파티션 키 (003 spec §9.1) — 이 저장소에서 난 발동은 관측 도구를 만드는 세션의 자기차단이다.
 TOOL_DEVELOPMENT_PROJECT = "reject-bench"
+#: cwd 부재 시 기록기가 넣는 자리표시. "다른 저장소" 증거가 아니므로 어느 파티션에도 넣지 않는다.
+UNPARTITIONED_PROJECT = "unknown"
+#: 선등록 임계 ⑤ — `insufficient_context`가 "지배적" = 판정 레코드가 있는 운영 사건 5건 이상에서 50% 이상.
+INSUFFICIENT_CONTEXT_MIN_EVENTS = 5
+INSUFFICIENT_CONTEXT_THRESHOLD_PERCENT = 50.0
 PARTITION_OVERALL = "전체"
 PARTITION_TOOL_DEVELOPMENT = "도구개발"
 PARTITION_OTHER = "그-외"
@@ -218,6 +223,13 @@ class ReportData:
     other: OperationMetrics
     # 스냅샷에 실제로 존재하는 스키마 버전 집합(정렬). 빈 store면 빈 튜플.
     schema_versions_present: tuple[str, ...]
+    # `project == "unknown"`인 운영 사건 — 어느 파티션에도 없고 전체에는 있다.
+    unpartitioned_count: int
+    # 운영 사건의 최신 판정 모델 분포 (model_id, 건수) — 프로토콜 ⑪ 순서 위반·혼합 감지.
+    verdict_model_counts: tuple[tuple[str, int], ...]
+    # 선등록 임계 ⑤의 원수 — 분모: 정책 판정 레코드가 있는 운영 사건, 분자: 최신 판정이
+    # insufficient_context. 전체 지표 기준.
+    insufficient_context_ratio: Ratio
 
 
 # --- 수집 ---------------------------------------------------------------------
@@ -228,7 +240,11 @@ def _is_tool_development(event: GuardEvent) -> bool:
 
 
 def _is_other(event: GuardEvent) -> bool:
-    return not _is_tool_development(event)
+    return not _is_tool_development(event) and event.project != UNPARTITIONED_PROJECT
+
+
+def _is_unpartitioned(event: GuardEvent) -> bool:
+    return event.project == UNPARTITIONED_PROJECT
 
 
 def _operation_metrics(
@@ -399,6 +415,19 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
         dataset, label=PARTITION_TOOL_DEVELOPMENT, event_filter=_is_tool_development, now=now
     )
     other = _operation_metrics(dataset, label=PARTITION_OTHER, event_filter=_is_other, now=now)
+    unpartitioned_count = len(operation_event_ids(dataset, event_filter=_is_unpartitioned))
+
+    model_counts: dict[str, int] = {}
+    judged = 0
+    insufficient = 0
+    for event_id in operation_event_ids(dataset):
+        latest = dataset.latest_verdict(event_id)
+        if latest is None:
+            continue
+        judged += 1
+        model_counts[latest.model_id] = model_counts.get(latest.model_id, 0) + 1
+        if latest.verdict is Verdict.INSUFFICIENT_CONTEXT:
+            insufficient += 1
 
     # 사건 출처 집계 — unregistered는 출처와 무관하게 별도, 나머지는 유효 출처.
     test_count = unknown_count = unregistered_count = 0
@@ -508,6 +537,9 @@ def build_report(store: AppendStore, *, now: datetime | None = None) -> ReportDa
         schema_versions_present=tuple(
             sorted({record.schema_version for record in load.records}, key=_version_key)
         ),
+        unpartitioned_count=unpartitioned_count,
+        verdict_model_counts=tuple(sorted(model_counts.items())),
+        insufficient_context_ratio=Ratio(insufficient, judged),
     )
 
 
@@ -528,6 +560,35 @@ def _schema_version_line(data: ReportData) -> str:
         return f"- 스키마 버전: {SCHEMA_VERSION}"
     return (
         f"- 스키마 버전: 기록기 현행 {SCHEMA_VERSION} · 스냅샷 실존 {', '.join(present)}"
+    )
+
+
+def _verdict_model_line(data: ReportData) -> str:
+    """운영 사건 최신 판정의 모델 분포 — 기본 모델 이외가 남아 있으면 그 건수를 드러낸다."""
+    if not data.verdict_model_counts:
+        return "- 최신 판정 모델: 판정 레코드 없음"
+    parts = " · ".join(f"{model} {count}" for model, count in data.verdict_model_counts)
+    non_default = sum(count for model, count in data.verdict_model_counts if model != DEFAULT_MODEL_ID)
+    return (
+        f"- 최신 판정 모델(운영 사건): {parts} — 기본({DEFAULT_MODEL_ID}) 이외 {non_default}건 "
+        "(프로토콜 ⑪: 확정값은 기본 모델이어야 한다 — 이외 건은 소급 제외분이거나 순서 위반)"
+    )
+
+
+def _insufficient_context_line(data: ReportData) -> str:
+    """선등록 임계 ⑤의 원수와 발동 여부 (전체 지표 기준)."""
+    ratio = data.insufficient_context_ratio
+    if ratio.unverified:
+        return "- insufficient_context 비율(선등록 임계 ⑤): 판정 레코드 없음 — 미발동"
+    triggered = (
+        ratio.denominator >= INSUFFICIENT_CONTEXT_MIN_EVENTS
+        and ratio.percentage >= INSUFFICIENT_CONTEXT_THRESHOLD_PERCENT
+    )
+    state = "**발동 — 캡처 설계 실패 신호**" if triggered else "미발동"
+    return (
+        f"- insufficient_context 비율(선등록 임계 ⑤, 전체 기준): {ratio.render()} — "
+        f"임계 {INSUFFICIENT_CONTEXT_MIN_EVENTS}건 이상에서 {INSUFFICIENT_CONTEXT_THRESHOLD_PERCENT:.0f}% 이상, {state}. "
+        "분모는 정책 판정 레코드가 있는 운영 사건(확정+보류), 분자는 최신 판정이 insufficient_context"
     )
 
 
@@ -663,7 +724,8 @@ def render_report(data: ReportData) -> str:
     )
     add(
         f"- operation 사건 파티션: {PARTITION_TOOL_DEVELOPMENT} {data.tool_development.operation_count} · "
-        f"{PARTITION_OTHER} {data.other.operation_count}"
+        f"{PARTITION_OTHER} {data.other.operation_count} · "
+        f"파티션 불가(`project == \"{UNPARTITIONED_PROJECT}\"`) {data.unpartitioned_count}"
     )
     add(
         "- test·unknown·unregistered 사건은 운영 지표의 분자·분모에 들어가지 않는다. "
@@ -685,6 +747,8 @@ def render_report(data: ReportData) -> str:
 
     add(f"- PolicyVerdict — {pending_line(lambda m: m.verdict_pending, 'insufficient_context')}")
     add(f"- UtilityReview — {pending_line(lambda m: m.review_pending, 'uncertain')}")
+    add(_verdict_model_line(data))
+    add(_insufficient_context_line(data))
     add("")
 
     add("## 기록 건전성")

@@ -31,8 +31,10 @@ from rejectbench import (
 )
 from rejectbench.judge import CALIBRATION_FILENAME
 from rejectbench.records import SchemaError
+from rejectbench.judge import DEFAULT_MODEL_ID
 from rejectbench.report import (
     BASELINE_FILENAME,
+    UNPARTITIONED_PROJECT,
     PARTITION_OTHER,
     PARTITION_TOOL_DEVELOPMENT,
     REPORTS_DIRNAME,
@@ -553,8 +555,8 @@ class TestReportPartition:
         report = generate_report(store, now=NOW)
         assert "파티션 키의 한계" in report
 
-    def test_decision_with_evidence_across_partitions_is_undecided_in_other(self, store):
-        """근거가 두 파티션에 걸친 결정은 그-외에서 미결정이다 (spec §9.6)."""
+    def test_partition_completion_is_measured_on_evidence_inside_the_partition(self, store):
+        """근거 ∩ 파티션으로 잰다 (spec §9.6, 프로토콜 ⑩) — 전부 인용한 결정이 그-외에서도 결정이다."""
         spec_a = make_spec()
         store.append(spec_a)
         e1 = make_event(spec_a, event_id="ev-1", session_id="claude:s-1")  # 도구개발
@@ -564,11 +566,76 @@ class TestReportPartition:
             store.append(event)
             store.append(make_verdict(event, verdict_id=f"vd-{event.event_id}"))
             store.append(make_review(event, review_id=f"rv-{event.event_id}"))
+        store.append(make_decision(evidence_event_ids=("ev-1", "ev-2", "ev-3")))
+        data = build_report(store, now=NOW)
+        assert data.overall.completion.fraction == "1/1"
+        assert data.other.completion.fraction == "1/1"  # 근거 ∩ 그-외 = {ev-2, ev-3}, 2세션
+        assert data.tool_development.completion.fraction == "0/0"  # 도구개발은 1세션이라 분모 밖
+
+    def test_evidence_with_one_session_inside_the_partition_stays_undecided(self, store):
+        """근거를 좁게 인용해도 파티션 안 근거가 1세션이면 미결정이다."""
+        spec_a = make_spec()
+        store.append(spec_a)
+        e1 = make_event(spec_a, event_id="ev-1", session_id="claude:s-1")
+        e2 = make_event(spec_a, event_id="ev-2", session_id="claude:s-o1", project=OTHER_PROJECT)
+        e3 = make_event(spec_a, event_id="ev-3", session_id="claude:s-o2", project=OTHER_PROJECT)
+        for event in (e1, e2, e3):
+            store.append(event)
+            store.append(make_verdict(event, verdict_id=f"vd-{event.event_id}"))
+            store.append(make_review(event, review_id=f"rv-{event.event_id}"))
         store.append(make_decision(evidence_event_ids=("ev-1", "ev-2")))
         data = build_report(store, now=NOW)
         assert data.overall.completion.fraction == "1/1"
-        assert data.other.completion.fraction == "0/1"  # 그-외 단독으로 판정 가능하지만 근거가 걸쳐 있다
-        assert data.tool_development.completion.fraction == "0/0"
+        assert data.other.completion.fraction == "0/1"
+
+    def test_unknown_project_is_in_neither_partition_but_in_the_total(self, store):
+        """`project == "unknown"`은 '다른 저장소' 증거가 아니다 — 파티션 밖, 전체 안 (spec §9.1)."""
+        spec_a = make_spec()
+        store.append(spec_a)
+        store.append(make_event(spec_a, event_id="ev-1", session_id="claude:s-1"))
+        store.append(
+            make_event(spec_a, event_id="ev-2", session_id="claude:s-2", project=UNPARTITIONED_PROJECT)
+        )
+        data = build_report(store, now=NOW)
+        assert data.overall.operation_count == 2
+        assert (data.tool_development.operation_count, data.other.operation_count) == (1, 0)
+        assert data.unpartitioned_count == 1
+        report = generate_report(store, now=NOW)
+        assert f'파티션 불가(`project == "{UNPARTITIONED_PROJECT}"`) 1' in report
+
+    def test_report_shows_latest_verdict_model_distribution(self, store):
+        """확정값의 모델 혼합과 순서 위반은 보고서가 드러낸다 (프로토콜 ⑪)."""
+        spec_a = make_spec()
+        store.append(spec_a)
+        e1 = make_event(spec_a, event_id="ev-1", session_id="claude:s-1")
+        e2 = make_event(spec_a, event_id="ev-2", session_id="claude:s-2")
+        e3 = make_event(spec_a, event_id="ev-3", session_id="claude:s-3")
+        for event in (e1, e2, e3):
+            store.append(event)
+        store.append(make_verdict(e1, verdict_id="vd-1", model_id=DEFAULT_MODEL_ID))
+        store.append(make_verdict(e2, verdict_id="vd-2", model_id="other-model"))
+        store.append(make_verdict(e2, verdict_id="vd-2b", model_id=DEFAULT_MODEL_ID))  # 기본이 마지막
+        store.append(make_verdict(e3, verdict_id="vd-3", model_id="other-model"))
+        data = build_report(store, now=NOW)
+        assert data.verdict_model_counts == ((DEFAULT_MODEL_ID, 2), ("other-model", 1))
+        report = generate_report(store, now=NOW)
+        assert f"{DEFAULT_MODEL_ID} 2 · other-model 1 — 기본({DEFAULT_MODEL_ID}) 이외 1건" in report
+
+    def test_insufficient_context_threshold_uses_judged_events_as_denominator(self, store):
+        """임계 ⑤의 분모는 판정 레코드가 있는 운영 사건(확정+보류)이다 — 보류값을 뺀 분모는 정의상 0이 된다."""
+        spec_a = make_spec()
+        store.append(spec_a)
+        for index in range(1, 7):
+            event = make_event(spec_a, event_id=f"ev-{index}", session_id=f"claude:s-{index}")
+            store.append(event)
+            if index <= 5:
+                verdict = Verdict.INSUFFICIENT_CONTEXT if index <= 3 else Verdict.CORRECT_BLOCK
+                store.append(make_verdict(event, verdict_id=f"vd-{index}", verdict=verdict))
+        data = build_report(store, now=NOW)
+        assert data.insufficient_context_ratio.fraction == "3/5"  # ev-6은 미처리라 분모 밖
+        report = generate_report(store, now=NOW)
+        assert "insufficient_context 비율(선등록 임계 ⑤, 전체 기준): 3/5 (60.0%)" in report
+        assert "**발동 — 캡처 설계 실패 신호**" in report
 
     def test_rich_store_has_an_empty_other_partition_rendered_as_unverified(self, store):
         """기존 픽스처는 전부 도구개발이다 — 그-외는 분모 0이라 미검증이지 성공이 아니다."""

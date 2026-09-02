@@ -116,13 +116,21 @@ class Completion:
 
 
 def decision_completion(dataset: Dataset, *, event_filter: EventFilter = None) -> Completion:
-    """증거 기반 결정 완료율의 원수. 파티션 위에서 재면 **그 파티션 안** 사건만이 근거다.
+    """증거 기반 결정 완료율의 원수. 파티션 위에서는 **근거 ∩ 파티션**으로 잰다 (003 spec §9.6).
+
+    인용된 근거는 전부 판정 가능 사건이어야 한다(전체 기준 — 보류·미처리 사건을 인용한
+    결정은 어느 벌에서도 세지 않는다). 그 위에서 파티션 완료율은 근거를 파티션으로 걸러
+    남은 사건이 2세션 이상일 때 "결정됨"이다 — 근거를 좁게 골라 인용하는 것으로 파티션
+    값을 올릴 수 없게, 결정은 그 시점 판정 가능 사건 전부를 인용한다(프로토콜 ⑩).
 
     가드 단위 지표라 파티션 두 벌의 합은 전체와 같지 않을 수 있다 — 한 가드가 전체에서는
     판정 가능(서로 다른 2세션)이면서 어느 파티션 안에서도 판정 불가일 수 있다. 합으로
     검산하지 말 것.
     """
     by_guard = _decidable_events_by_guard(dataset, event_filter=event_filter)
+    by_guard_all = (
+        by_guard if event_filter is None else _decidable_events_by_guard(dataset)
+    )
 
     decidable: set[str] = set()
     for guard_id, event_ids in by_guard.items():
@@ -136,10 +144,10 @@ def decision_completion(dataset: Dataset, *, event_filter: EventFilter = None) -
         if guard_id not in decidable:
             # 분자는 분모의 부분집합으로만 센다.
             continue
-        guard_decidable = set(by_guard.get(guard_id, []))
-        evidence = set(decision.evidence_event_ids)
-        if not evidence or not evidence <= guard_decidable:
-            continue
+        cited = set(decision.evidence_event_ids)
+        if not cited or not cited <= set(by_guard_all.get(guard_id, [])):
+            continue  # 판정 가능하지 않은 사건을 인용한 결정은 근거로 인정하지 않는다
+        evidence = cited & set(by_guard.get(guard_id, []))
         evidence_sessions = {dataset.events[eid].session_id for eid in evidence}
         if len(evidence_sessions) >= 2:
             decided.add(guard_id)

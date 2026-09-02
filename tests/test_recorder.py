@@ -411,9 +411,9 @@ def test_store_root_defaults_to_production_and_env_overrides(tmp_path):
 
 # --- 차단 사유 절단 (spec §3) -------------------------------------------------
 #
-# 계약이 고정한 숫자는 테스트가 리터럴로 못 박는다 — 구현 상수를 그대로 읽어
-# 비교하면 상한을 바꿔도 테스트가 따라 움직여 회귀를 못 잡는다. 상한·하한
-# 상수끼리의 정합만 마지막 테스트가 따로 본다.
+# 경계 픽스처의 숫자는 테스트가 리터럴로 쓴다 — 구현 상수를 그대로 읽어 비교하면
+# 상한을 바꿔도 테스트가 따라 움직여 회귀를 못 잡는다. 구현 상수값 자체를 되풀이해
+# 단언하는 테스트는 두지 않는다(plan E1, 2026-09-02 결정).
 
 MAX = 4000  # 본문 상한 (마커 별도)
 FLOOR = 2000  # 하한 = 상한의 50%
@@ -506,6 +506,14 @@ def test_unit_ending_exactly_at_the_cap_is_kept_whole(tmp_path):
     assert text[MAX].isspace() and not text[MAX - 1].isspace()
     stored = truncate_case(tmp_path, text)
     assert stored == text[:MAX] + MARKER
+
+
+def test_trailing_whitespace_run_before_the_cap_is_not_kept(tmp_path):
+    """상한 자리 앞이 공백류 연속열이면 단위는 온전하지만 그 연속열은 본문에 남기지 않는다 (spec §3.1)."""
+    text = spaced(3990) + dense(7) + " \t\n" + dense(500)  # 4000번째(index 3999)가 개행, 4001번째가 새 단위
+    assert text[MAX - 1].isspace() and not text[MAX].isspace()
+    stored = truncate_case(tmp_path, text)
+    assert stored == text[:3997] + MARKER  # 연속열 " \t\n" 시작 앞까지
 
 
 def test_home_with_trailing_slash_still_protects_the_path(tmp_path):
