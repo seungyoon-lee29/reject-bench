@@ -1,12 +1,12 @@
-# 핸드오프 — 003 주기 리뷰 반영 완료, PR 열림·새 사건 판정 대기 (2026-09-02)
+# 핸드오프 — 003 주기 병합·아카이브 완료, 관측 대기 (2026-09-02)
 
 ## 지금 하던 것
 
-003 주기(운영 경험 개선 증분)의 **E0~E7 여덟 태스크가 전부 끝났고 코드리뷰 반영까지 마쳤다.** E0까지는 main에 머지돼 있고 나머지는 브랜치 `dryforge/003-e1-truncation-retreat`에 있다 — **사용자 결정으로 push·PR 완료**(PR 링크는 `gh pr view`). 무엇을 왜 바꿨는지는 `git log main..HEAD`의 본문이 정본이고, 체크박스는 `.dryforge/plan.md`(전부 `[x]`), 계약은 `.dryforge/{spec,plan,handoff}.md`다.
+003 주기(운영 경험 개선 증분)의 **E0~E7 여덟 태스크가 전부 끝났고 코드리뷰 반영까지 마쳤다.** **PR #8이 main에 병합됐고(`108f62c`) `.dryforge/` 루트 3종은 `003/`로 아카이브했다.** 무엇을 왜 바꿨는지는 `git log`의 커밋 본문이 정본이고, 체크박스는 `.dryforge/003/plan.md`(전부 `[x]`), 계약은 `.dryforge/003/{spec,plan,handoff}.md`다. 진행 중 주기는 없다.
 
 **코드리뷰(2026-09-02)**: 앞선 리뷰 세션은 rate limit로 E1·E2(`73070dd`)까지만 단독 분석했다. 이 세션이 E3·E4·E7을 에이전트 둘로 재리뷰해 합쳤다. 반영: 절단점 바로 뒤가 공백이면 온전한 단위를 버리던 결함(spec §3.1 문면 개정), `HOME` 끝 슬래시 정규화·주입 env만 보는 `_home_path`(조회 경계도 같은 규칙), `_blind_truncate` 병합·도달 불가 분기 제거, 비율 리터럴 고정 테스트 삭제(사용자: 하드코딩 불필요), report의 O(n²)·중복 계산·버전 문자열 정렬, spec §9.1 파티션 키 한계·§9.6 파티션 안 근거 규칙 명문화 + 회귀 테스트 2건, 프로토콜 변경 기록 ⑨(rejudge 순서). 미반영(사용자 결정 — 다음 주기): 미결 8·9·10.
 
-완료 게이트 상태: `uv run pytest` 532건 exit 0 · E3 임시 store 실기동 왕복 1건 · E0·E4 읽기 조회 캡처(`docs/배선-목록.md`) · 정본 3종 갱신 + `diff CLAUDE.md AGENTS.md` exit 0 · 운영 `data/` 읽기만 — **병합만 남았다.** 병합 뒤 `.dryforge/` 루트 3종을 `003/`로 아카이브한다(하드 게이트 9 — 그 전에는 루트).
+완료 게이트 상태: `uv run pytest` 535건 exit 0 · E3 임시 store 실기동 왕복 1건 · E0·E4 읽기 조회 캡처(`docs/배선-목록.md`) · 정본 3종 갱신 + `diff CLAUDE.md AGENTS.md` exit 0 · 운영 `data/` 읽기만 · 병합·아카이브 완료.
 
 **git 밖 상태(E0·E4가 만든 것)**: 사용자 전역 `~/.claude/settings.json`은 래퍼 배선에 `PYTHONPATH` 접두가 있고 `collect.py` 훅 4건이 빠진 상태(훅 18건). 스냅샷 `~/.claude/settings.json.rejectbench-pre-e0-20260901`·`…pre-e4-20260902`가 유일한 되돌림 수단이라 남긴다. 사용자 소유 `.claude/settings.json.bak-*`·`.codex/config.toml.bak-*`는 비추적이며 건드리지 않는다.
 
@@ -16,7 +16,7 @@
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**PR 병합 뒤 `.dryforge/` 루트 3종을 `003/`로 아카이브한다**(하드 게이트 9). 새 사건 `ev-527f00a4…`의 판정·검토는 사용자가 "나중에"로 결정 — 실행할 때는 순서 규칙(프로토콜 ⑨: 기본 모델이 마지막, 이번은 기본 모델 1회만)대로 `set -a; . ./.env; set +a` → `judge --approve-billing` → `review record --utility unnecessary …`(note에 위험 패턴 인용 금지). 그 뒤는 관측 대기: 2026-09-26경 4주 종료 판정까지 그-외 자연 발동이 없으면 "운영 빈도 미검증"으로 종료(D12). 강제 발동 금지. O2에서 그-외 사건이 있으면 `project` 값을 수동 확인(spec §9.1 한계).
+**새 사건 `ev-527f00a4…`의 판정·검토** — 사용자가 "나중에"로 결정 — 실행할 때는 순서 규칙(프로토콜 ⑨: 기본 모델이 마지막, 이번은 기본 모델 1회만)대로 `set -a; . ./.env; set +a` → `judge --approve-billing` → `review record --utility unnecessary …`(note에 위험 패턴 인용 금지). 그 뒤는 관측 대기: 2026-09-26경 4주 종료 판정까지 그-외 자연 발동이 없으면 "운영 빈도 미검증"으로 종료(D12). 강제 발동 금지. O2에서 그-외 사건이 있으면 `project` 값을 수동 확인(spec §9.1 한계).
 
 ## 미결 결정
 
@@ -35,7 +35,7 @@
 
 - **전역 가드 자기차단이 곧 운영 사건이다.** 위험 패턴 텍스트를 heredoc/echo/CLI 인자(`--note`·`--reason`·`--rationale`·`--rejudge-reason`)로 쓰면 명령 문자열 전문 매칭으로 차단되고 operation 사건으로 기록된다. 파일 도구로 쓸 것. 새 사건이 정확히 이 경로였다.
 - **작업 트리 코드가 모든 저장소의 Bash 훅에서 해석된다**(`package = false` + `PYTHONPATH` 접두). `records`·`recorder`·`wrapper` 편집 중 import 불가 상태면 전역 가드가 죽는다 — 편집마다 저장소 밖 cwd에서 `import rejectbench.wrapper` 스모크.
-- **시험·강제 발동은 `REJECTBENCH_TEST_SESSION` 아래에서만**, store는 `REJECTBENCH_STORE`로 임시 경로에. 조회 서버는 그 env를 안 읽는다 — 임시 store는 `--store <경로>`로 별도 기동(`.dryforge/handoff.md` 하드 게이트 3의 명령 한 줄).
+- **시험·강제 발동은 `REJECTBENCH_TEST_SESSION` 아래에서만**, store는 `REJECTBENCH_STORE`로 임시 경로에. 조회 서버는 그 env를 안 읽는다 — 임시 store는 `--store <경로>`로 별도 기동(`.dryforge/003/handoff.md` 하드 게이트 3의 명령 한 줄).
 - **판정은 `.env`를 자동으로 읽지 않는다** — 셸 주입. 키 값을 어디에도 남기지 말 것. **기본 모델을 gpt-5 계열로 되돌리지 말 것**(temperature 거부로 전량 실패, `TestDefaultConfigCoherence`가 막는다).
 - **테스트는 임시 store만**(conftest 게이트), 네트워크 금지. `pytest -q`는 addopts의 `-q`와 겹쳐 요약 줄이 사라진다 — 건수는 `uv run pytest | tail -1`.
 - **E3 자격은 UUID 문법이지 E2 술어(8~128자)가 아니다.** 바꾸면 날짜꼴·hex 조각이 준수가 되어 타임스탬프·해시·event_id가 뭉개진다. 분해는 `records.split_session_id` 하나. 자리표시 `unknown`은 needle이 아니다.

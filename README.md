@@ -36,13 +36,13 @@
 - v7 문제정의: [`docs/문제정의/06-v7-문제정의.md`](docs/문제정의/06-v7-문제정의.md)
 - 인터뷰·finding 결정 기록: [`docs/문제정의/07-포트폴리오-인터뷰.md`](docs/문제정의/07-포트폴리오-인터뷰.md)
 - 기획 불변 입력: [`기획-입력.md`](기획-입력.md)
-- 행동 계약: [`.dryforge/002/spec.md`](.dryforge/002/spec.md) (v1 본체는 [`.dryforge/001/spec.md`](.dryforge/001/spec.md))
-- 실행 계획: [`.dryforge/002/plan.md`](.dryforge/002/plan.md)
-- 설계 관장: [`.dryforge/002/handoff.md`](.dryforge/002/handoff.md)
+- 행동 계약: [`.dryforge/003/spec.md`](.dryforge/003/spec.md) (v1 본체는 [`.dryforge/001/spec.md`](.dryforge/001/spec.md))
+- 실행 계획: [`.dryforge/003/plan.md`](.dryforge/003/plan.md)
+- 설계 관장: [`.dryforge/003/handoff.md`](.dryforge/003/handoff.md)
 - 도메인 용어: [`CONTEXT.md`](CONTEXT.md)
 - 적대 리뷰(심사 자료): [`docs/v7-기획-적대리뷰.md`](docs/v7-기획-적대리뷰.md)
 
-**실행 상태와 현재 frontier는 [`.dryforge/002/plan.md`](.dryforge/002/plan.md)와 [`HANDOFF.md`](HANDOFF.md)만 기록합니다.** 과거 01~05 문제정의와 수집기 v0 실측은 실패와 방향 변경의 근거로 보존하며, 05는 현재 정본이 아닙니다.
+**실행 상태와 현재 frontier는 [`.dryforge/003/plan.md`](.dryforge/003/plan.md)와 [`HANDOFF.md`](HANDOFF.md)만 기록합니다.** 과거 01~05 문제정의와 수집기 v0 실측은 실패와 방향 변경의 근거로 보존하며, 05는 현재 정본이 아닙니다.
 
 ## 사용 (v1 CLI)
 
