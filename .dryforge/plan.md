@@ -74,13 +74,14 @@
 
 의존: E2 (분해 함수 재사용). spec §5.
 
-- [ ] 실패 테스트 먼저: UUID 문법 준수 ID를 일반 단어 속에 파묻은 픽스처가 도구 3종+오류 경로 응답에서 원문 0회 — 복합값·원본 부분 단독 등장 모두
-- [ ] 자격 술어를 **UUID 문법**으로 별도 정의(§4의 8~128 술어를 쓰지 않는다)
-- [ ] 출력 경계의 needle 분류 구현: 준수 복합값은 부분문자열 매칭 + 원본 부분 needle 병행(동일 별칭), 자리표시·비준수·`:` 없는 값은 현행 토큰 경계 유지
-- [ ] **비훼손 검증**: 자리표시(`unknown`)·비준수 ID 주변의 일반 텍스트가 변하지 않음
-- [ ] **준수 부류 비훼손 픽스처**: 준수 ID가 타임스탬프·`content_hash`·`event_id`와 겹치는 픽스처에서 그 값들이 변하지 않음
-- [ ] 002의 기존 양성 대조 전체가 그대로 통과함을 확인(값 전체·토큰·오류 경로·홈 경로)
-- [ ] 임시 store 실기동 왕복 1건: **`--store <임시 경로>` 인자로 별도 기동한 프로세스**에 stdio 호출로 파묻힌 ID가 별칭으로 나오는 응답 확인 — `.mcp.json` 등록 서버·인자 없는 기동 금지, `REJECTBENCH_STORE` env는 서버에 안 통함
+- [x] 실패 테스트 먼저: `buried_store` 픽스처 — 복합값 `claude:<uuid>`와 원본 `<uuid>`를 사유·판정 사유·검토 메모·결정 근거·spec 의미 필드에 `foo<uuid>bar`·`x<복합값>y`·`/<uuid>.jsonl` 꼴로 파묻고 도구 3종 + 메아리가 나가는 오류 경로(목록형 `guard_id`)의 응답 전체에서 원문 0회, 별칭이 주변 글자를 보존한 채 나타남을 단언. 신규 9건 중 4건 red 확인 후 구현(나머지는 현행 동작을 지키는 대조라 처음부터 green이 맞다)
+- [x] 자격 술어 — `mcp_server._UUID_SYNTAX`(8-4-4-4-12 hex, `fullmatch`) + `_uuid_raw_part`. 분해는 **E2의 `records.split_session_id`** 그대로(첫 `:` 기준 — 마지막 `:` 분해 돌연변이를 `codex:run:<uuid>` 픽스처가 잡는다)
+- [x] needle 분류 — `OutputBoundary._needles`(needle → 정본 저장 ID) 하나로 통합. 준수 복합값은 복합값·원본 둘 다 무경계 부분문자열 needle이고 같은 정본(동일 별칭), 그 외는 `(?<!\w)…(?!\w)` 토큰 경계 유지. 단일 패스 치환·긴 needle 우선·홈 치환 전 별칭화·오류 경로 단일 통과는 그대로
+- [x] **비훼손 검증** — 자리표시 `claude:unknown` 사건의 사유 `unknown state; unknownish…`와 정책 텍스트가 글자 하나 안 바뀜, 비준수 `claude:sess-1`의 `prefix…suffix` 접착 등장이 002대로 원문 유지
+- [x] **준수 부류 비훼손 픽스처** — §4 술어로는 준수인 날짜꼴(`2026-08-01`)·12자 hex 조각·`planted0001`을 세션 ID로 심고 `occurred_at`·`content_hash`·`event_id` 불변 + 세션 필드는 별칭. §4 술어를 자격으로 쓰는 돌연변이가 이 테스트에서만 red다
+- [x] 002 양성 대조 전체 통과(값 전체·토큰·오류 경로·홈 경로·정화 후 절단) — 기존 89건 무수정
+- [x] 임시 store 실기동 왕복 — (a) 테스트 `test_stdio_round_trip_aliases_a_buried_uuid`(하위 프로세스 stdio) (b) 하드 게이트 3의 명령 한 줄(`PYTHONPATH=… uv run --project … python -m rejectbench.mcp_server --store <임시>`)을 **저장소 밖 cwd**에서 별도 기동해 `guard_evidence` 호출: 도구 3종 목록, `is_error: false`, 원본 UUID·복합값 0회, `reason: "transcript /x/S1.jsonl; glued fooS1bar; whole S1"`. 운영 store 무접촉
+- [x] **추가(판별력)**: 돌연변이 7종 전부 red — §4 술어 자격·준수 부류 없음(002 대조군)·전부 무경계·마지막 콜론 분해·원본에 별도 별칭·준수도 토큰 경계·짧은 needle 우선. 마지막 둘은 처음 살아남아 픽스처를 더했다: 접두 겹침 ID(`claude:s`·`claude:s-1`)의 자유 텍스트 픽스처는 002 이후 한 번도 없었고, 짧은 needle 우선이면 `S1-1`로 샌다
 
 작업 대상: [파일] `rejectbench/mcp_server.py`, `tests/test_mcp_server.py`.
 검증 게이트: 신규+기존 양성 대조 전체 통과, 실기동 왕복은 임시 store로만.

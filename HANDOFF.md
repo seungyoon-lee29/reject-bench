@@ -1,10 +1,10 @@
-# 핸드오프 — 003 E3 대기 (2026-09-02)
+# 핸드오프 — 003 E4 대기 (2026-09-02)
 
 ## 지금 하던 것
 
-003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0 → E1 → E2**까지 끝냈다. E0까지는 main에 머지돼 있고 **E1·E2는 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋돼 있다(push·PR 안 함)**. 다음은 **E3**다.
+003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0 → E1 → E2 → E3**까지 끝냈다. E0까지는 main에 머지돼 있고 **E1·E2·E3는 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋돼 있다(push·PR 안 함)**. 다음은 **E4**다 — 사용자 전역 설정을 만지는 태스크라 하드 게이트 5(스냅샷·롤백)가 걸린다.
 
-계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0·E1·E2 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
+계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0~E3 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
 
 **끝난 것**
 
@@ -13,7 +13,8 @@
 - **판정 CLI 주입구** (PR #5) — `judge --model-settings JSON`(전체 교체). `AGENTS.md:42`가 처방한 경로.
 - **E0 배선 수정** (PR #6) — 전역 훅에 인라인 `PYTHONPATH` 접두. 저장소 밖 cwd에서 `ModuleNotFoundError` → `IMPORT OK`. 캡처는 `docs/배선-목록.md`의 "E0 배선 수정" 절.
 - **E0 실기동 검증** — 다른 저장소(`provenance`) cwd에서 래퍼를 직접 불러 가드 차단(exit 2)과 **임시 store 기록**까지 확인했다. `project: provenance`, `origin: test`(`explicit_flag`). 운영 store 무접촉.
-- **E2 세션 ID 적재 형식 규칙** (커밋 `feat: validate session id format at ingest`) — `records.py`에 분해 함수 `split_session_id`(첫 `:` 기준, 이후 전부가 원본)·술어 `session_id_format`·명명 상수 `SESSION_ID_RAW_RULE`(8~128, `[A-Za-z0-9_-]`)·`SessionIdFormat` 3상 enum·`GuardEvent.session_id_format`(기본값 `unchecked`, `null` 불허)·`SCHEMA_VERSION` 7.1·파서 완화(`guard_event`이고 누락 키가 `session_id_format` 하나일 때만 `unchecked`, 호출자 dict 무변경). `recorder.py`는 자리표시면 `unchecked`, 술어 예외도 `unchecked`(폴백은 `assemble_event` 안에서 닫힘), `_sensitive_values`가 원본 needle을 페이로드가 아니라 `split_session_id`로 얻는다(자리표시 `unknown`은 needle 아님 — 음성 대조로 고정). 신규 테스트 39건(records 31·recorder 8), 전체 게이트 511건 통과, 저장소 밖 import 스모크 3회 OK.
+- **E3 조회 표면 가림 확장** (커밋 `feat: alias conforming session ids down to substrings`) — `mcp_server.OutputBoundary`가 저장 세션 ID를 출력 시점 모양으로 두 부류로 가른다: `records.split_session_id`로 분해한 원본이 **UUID 문법**(`_UUID_SYNTAX`, §4 술어 아님)이면 복합값·원본 둘 다 **무경계 부분문자열** needle로 같은 별칭에, 그 외(자리표시·비준수·`:` 없는 값)는 002 토큰 경계 유지. needle → 정본 저장 ID 표(`_needles`) 하나로 통합했고 단일 패스·긴 needle 우선·홈 치환 전 별칭화는 그대로. 신규 테스트 9건(파묻힘 양성 대조·자리표시/비준수 비훼손·날짜꼴/hex/event_id 불변·코너 규정·stdio 왕복·첫-콜론 분해·접두 겹침), 전체 게이트 520건 통과. **실기동 왕복**: 하드 게이트 3 명령을 저장소 밖 cwd에서 임시 store로 별도 기동해 `guard_evidence` 호출 → 원본 0회, `reason: "transcript /x/S1.jsonl; glued fooS1bar; whole S1"`. 돌연변이 7/7 red(둘은 처음 살아남아 픽스처를 더했다 — 접두 겹침 `claude:s`/`claude:s-1` 자유 텍스트는 002 이후 한 번도 없던 픽스처). `rejectbench/AGENTS.md:27·:29`와 루트 `CLAUDE.md`/`AGENTS.md` ⑥은 **이제 낡았다** — E6가 갱신한다.
+- **E2 세션 ID 적재 형식 규칙** (커밋 `73070dd`) — `records.py`에 분해 함수 `split_session_id`(첫 `:` 기준, 이후 전부가 원본)·술어 `session_id_format`·명명 상수 `SESSION_ID_RAW_RULE`(8~128, `[A-Za-z0-9_-]`)·`SessionIdFormat` 3상 enum·`GuardEvent.session_id_format`(기본값 `unchecked`, `null` 불허)·`SCHEMA_VERSION` 7.1·파서 완화(`guard_event`이고 누락 키가 `session_id_format` 하나일 때만 `unchecked`, 호출자 dict 무변경). `recorder.py`는 자리표시면 `unchecked`, 술어 예외도 `unchecked`(폴백은 `assemble_event` 안에서 닫힘), `_sensitive_values`가 원본 needle을 페이로드가 아니라 `split_session_id`로 얻는다(자리표시 `unknown`은 needle 아님 — 음성 대조로 고정). 신규 테스트 39건(records 31·recorder 8), 전체 게이트 511건 통과, 저장소 밖 import 스모크 3회 OK.
   **사건 수 보존 대조**(운영 store 읽기 전용, 완화 전후): guard_event 7·손상 줄 0·operation 6·판정 가능 4·검토 큐 0·완료율 0/1 전부 동일. 돌연변이 13종 중 12종 red(초과 키 무시·`$` 앵커·하이픈 탈락·하한/상한 off-by-one·마지막 콜론 분해·예외 미포착·자리표시 검사·미검사·예외→conforming·needle에 자리표시 포함·needle에서 원본 누락), 1종(`record_type` 검사 제거)은 **등가 돌연변이** — 타 레코드는 그 키를 기대하지 않아 관측 차이가 없다. 보고서·조회 표면에는 이 필드를 노출하지 않았다(spec §4.9). store 실존 버전은 아직 `{7.0}`뿐이고 기록기 현행은 7.1 — E7 헤더가 둘을 병기한다.
 - **E1 절단 되물림** (커밋 `12e2269`) — `rejectbench/recorder.py`의 4000자 맹목 절단을 ① 공백류 되물림 → ② 민감값 세 종(홈 절대 경로·복합 세션 ID·원본 세션 ID) 가로지름 회피(고정점, 항상) → ③ 상한 50% 미만이면 정돈을 버리는 폴백으로 바꿨다. 테스트 28건, 전체 게이트 472건 통과.
   적대 검증(5축 병렬 + finding별 반증, 47에이전트)에서 확인 14 / 반증 28. 반영한 것: **되물림 상한 경계의 음성 대조 부재**(없으면 사유 앞머리 홈 경로 하나로 본문이 0자가 되는 과잉 구현이 전량 green으로 지나갔다), 개행 절이 공허했던 테스트, 위양성 구조였던 테스트 헬퍼, 정규식 역추적 2차 시간(병리 입력 40ms → 선형 0.08ms), 실행 빈도를 잘못 적은 주석, 동어반복 상수 단언. 돌연변이 8종 전부 red 확인.
@@ -37,11 +38,11 @@
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**E3의 첫 체크박스 — 실패 테스트를 먼저 쓴다.** `tests/test_mcp_server.py`에 **UUID 문법 준수 ID를 일반 단어 속에 파묻은** 픽스처(복합값 `claude:<uuid>`와 원본 부분 `<uuid>` 단독 등장 모두, 예: `foo<uuid>bar`)를 심고 도구 3종(`list_guards`·`guard_evidence`·`get_report`) + 오류 경로의 응답 전체에서 원문 0회를 단언한다. 함께 심을 것: 자리표시(`claude:unknown`) 주변 일반 단어 `unknown`의 비훼손, 비준수 ID 주변 텍스트 비훼손, 준수 ID가 `occurred_at`·`content_hash`·`event_id`와 겹치는 픽스처에서 그 값들의 불변.
+**E4의 첫 체크박스 — 스냅샷 먼저.** 편집 전에 `~/.claude/settings.json`을 `~/.claude/settings.json.rejectbench-pre-e4-<날짜>`로 복사한다(사용자 소유 `.bak-*`와 **다른 이름**, E0의 `…pre-e0-20260901`과 같은 관례). 그다음 읽기 조회로 `hooks/collect.py`를 부르는 항목이 **정확히 4건**(PostToolUse `Edit|Write|MultiEdit|NotebookEdit` / PostToolUseFailure / PermissionRequest / PermissionDenied)인지, 훅 항목 총수·최상위 키 수(E0 시점 22건·15개)를 캡처한다. 편집은 임시 파일에 써서 JSON 파싱 성공을 확인한 뒤 원자적으로 교체하고, 검증 3종(유효 JSON / collect.py 항목 0건 / PreToolUse `Bash` 래퍼 배선 잔존) 중 하나라도 실패하면 스냅샷에서 복원한다. 같은 이벤트의 다른 훅은 건드리지 않는다.
 
-red 확인 후 `.dryforge/spec.md` §5대로 구현한다 — `mcp_server.OutputBoundary`의 needle 분류: 저장 세션 ID를 **E2의 `records.split_session_id`**로 분해하고(두 벌 만들지 말 것), 원본 부분이 **UUID 문법**(§4 술어가 아니다 — `2026-09-01`이 준수로 새는 구멍)을 충족하면 복합값·원본 부분 둘 다 **무경계 부분문자열** needle로 같은 별칭에 매핑, 그 외(자리표시·비준수·`:` 없는 값)는 현행 토큰 경계 매칭 유지. 긴 needle 우선·별칭 재치환 방지·홈 치환 전 별칭화·오류 경로 단일 통과는 그대로. 마지막에 **`--store <임시 경로>`로 별도 기동한 프로세스**에 stdio 왕복 1건(하드 게이트 3의 명령 한 줄) — `.mcp.json` 등록 서버·인자 없는 기동 금지.
+그 뒤 저장소에서 `hooks/collect.py` 삭제(`continuity.py`·`codex_handoff_gate.py`·테스트·`data/events.jsonl` 보존), `docs/배선-목록.md`의 collect.py 언급 **전부**(v0 절 밖 `:27`의 죽은 번호 참조 포함 — 항목명으로 교체)와 `README.md` 문단 갱신, 캡처 3종을 `docs/배선-목록.md` 퇴역 완료 기록에 그대로 적는다. 커밋 `chore: retire v0 collector`.
 
-그 뒤 E4 → … → E7. E4는 사용자 전역 설정(`~/.claude/settings.json`) 편집이라 하드 게이트 5(스냅샷·롤백)를 반드시 거친다.
+그 뒤 E5(관찰 프로토콜 append 8건) → E6(정본 갱신 — `rejectbench/AGENTS.md:27·:29`, 루트 `CLAUDE.md`/`AGENTS.md` ⑥, 이 파일) → E7(보고서 파티션).
 
 ## 미결 결정
 
@@ -77,6 +78,8 @@ red 확인 후 `.dryforge/spec.md` §5대로 구현한다 — `mcp_server.Output
 - **되물림은 "가로지를 때만"이다.** 본문 안에 온전히 든 등장까지 되물리면 사유가 통째로 사라진다. `_retreat_past_sensitive`의 탐색 창 하한 `max(0, cut - span + 1)`이 그 조건이고, 음성 대조 3건이 이 경계를 지킨다 — 지우지 말 것.
 - **`session_id_format`은 진단값이지 게이트가 아니다.** 비준수여도 저장값·origin·가드 결과는 불변이고, 자리표시·구형·술어 예외는 셋 다 `unchecked`로 합쳐진다(의도된 선택, spec §4.6). 파서 완화는 `guard_event`의 `session_id_format` **하나** 누락에만 걸린다 — 다른 키 누락·초과 키는 여전히 손상 줄이고 테스트가 그걸 고정한다. dataclass 기본값이 `unchecked`라 기록기 밖에서 만든 GuardEvent는 검사 없이 `unchecked`다.
 - **자리표시 `unknown`은 needle이 아니다.** `_sensitive_values`가 `split_session_id`로 원본을 얻지만 `context_available`이 거짓이면 원본을 빼고, E3의 준수 부류도 UUID 문법이라 자리표시는 들어가지 않는다. 일반 단어 `unknown`을 민감값으로 삼으면 사유가 부당하게 줄고 응답 텍스트가 훼손된다 — 음성 대조 `test_placeholder_raw_part_is_not_a_truncation_needle`이 이걸 고정한다.
+- **E3 자격은 UUID 문법이지 §4 술어가 아니다.** `mcp_server._UUID_SYNTAX`를 `records.SESSION_ID_RAW_RULE`로 바꾸면 날짜꼴·hex 조각 세션 ID가 준수가 되어 무경계 치환이 `occurred_at`·`content_hash`·`event_id`를 뭉갠다 — `test_rule_shaped_but_non_uuid_ids_…`가 이걸 고정한다. 분해는 반드시 `records.split_session_id`(첫 `:`) — 두 벌 만들지 말 것.
+- **미등록 가드 오류는 호출자 입력을 되비추지 않는다**(002 §4.2). 오류 경로에서 별칭 치환을 관찰하려면 메아리가 나가는 타입 오류(목록형 `guard_id` 등)를 써야 한다 — E3 양성 대조가 처음에 이걸로 헛발을 디뎠다.
 - **`pytest -q`는 요약 줄이 안 나온다.** `pyproject.toml`의 `addopts`에 이미 `-q`가 있어 `-q`를 더 주면 `-qq`가 되고 `N passed` 줄이 사라진다. 건수가 필요하면 `uv run pytest | tail -1`. 돌연변이 판별 플러그인은 `FAILED` 줄로 세고, **이름으로 import된 바인딩(`rejectbench.X`·`recorder.X`)까지 같이 갈아끼워야** 테스트가 원본을 부르지 않는다.
 - **전역 설정 편집은 스냅샷·롤백을 거친다**(`.dryforge/handoff.md` 하드 게이트 5). E4가 아직 남았다 — E0이 만든 `~/.claude/settings.json.rejectbench-pre-e0-20260901`은 E4까지 남긴다.
 - **`.claude/settings.json.bak-1786598695`, `.codex/config.toml.bak-1786598644`는 사용자 소유 비추적 백업.** 스테이징·수정·삭제 금지.
