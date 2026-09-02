@@ -1,10 +1,10 @@
-# 핸드오프 — 003 E6 대기 (2026-09-02)
+# 핸드오프 — 003 E7 대기 (2026-09-02)
 
 ## 지금 하던 것
 
-003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0 → E1 → E2 → E3 → E4 → E5**까지 끝냈다. E0까지는 main에 머지돼 있고 **E1~E5는 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋돼 있다(push·PR 안 함)**. 다음은 **E6**(정본 갱신)이고 그 뒤 **E7**(보고서 파티션)이 마지막이다.
+003 주기(운영 경험 개선 증분)에서 **계약 개정 → 기준선 측정 → 미결 정리 → E0 → E1 → E2 → E3 → E4 → E5 → E6**까지 끝냈다. E0까지는 main에 머지돼 있고 **E1~E6는 브랜치 `dryforge/003-e1-truncation-retreat`에 커밋돼 있다(push·PR 안 함)**. 남은 것은 **E7**(보고서 파티션) 하나다.
 
-계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0~E5 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
+계약 정본은 `.dryforge/{spec,plan,handoff}.md` 3종. 태스크는 선행 절차 하나 + E0~E7 여덟 개이고 **E0~E6 완료**다. 각 태스크 체크박스는 `.dryforge/plan.md`에 있다.
 
 **끝난 것**
 
@@ -13,7 +13,8 @@
 - **판정 CLI 주입구** (PR #5) — `judge --model-settings JSON`(전체 교체). `AGENTS.md:42`가 처방한 경로.
 - **E0 배선 수정** (PR #6) — 전역 훅에 인라인 `PYTHONPATH` 접두. 저장소 밖 cwd에서 `ModuleNotFoundError` → `IMPORT OK`. 캡처는 `docs/배선-목록.md`의 "E0 배선 수정" 절.
 - **E0 실기동 검증** — 다른 저장소(`provenance`) cwd에서 래퍼를 직접 불러 가드 차단(exit 2)과 **임시 store 기록**까지 확인했다. `project: provenance`, `origin: test`(`explicit_flag`). 운영 store 무접촉.
-- **E5 관찰 프로토콜 추기** (커밋 `docs: append observation protocol amendments`) — `docs/관찰-프로토콜.md` "변경 기록"에 append 8건(머리말 1줄 포함, 기존 줄 삭제·수정 0 — `git diff --numstat` 삭제 0). ① 기준선 이월 규칙 ② 기구 변경 E0·E1·E2·E4(커밋 해시 명기, E3는 조회 표면이라 제외) ③ 관측 무대 변화(`protect-live-reports` 기대 발동 0 수렴, `block-dangerous-git` 단독 의존) ④ 관측 범위 소급 정정(2026-08-29~09-01 구간은 사실상 reject-bench 세션만) ⑤ 자기차단 산입 규칙 + **D12 두 선등록**(종료 조건은 그-외 파티션으로 판정 / `insufficient_context` 임계 확정 5건 이상에서 50% 이상, 전체 지표 기준) ⑥ 본문 vs 변경 기록 승자 규칙(변경 기록 안) ⑦ 이월 누계 표기(현재 0건) ⑧ ADR 0001 부분 supersede. `docs/adr/0001-…md`는 frontmatter `status: partially superseded`와 끝의 "Supersede 기록" 절만 더했다(본문 보존).
+- **E6 정본 갱신** (커밋 `docs: update canonical docs for the extended redaction contract`) — `rejectbench/AGENTS.md`의 낡은 비노출 두 문장을 E3 계약(두 부류·자격은 UUID 문법·잔여 한계 둘·파묻힌 UUID 양성 대조)으로 바꾸고, 모듈 맵(`records`·`recorder`)·절단 되물림·collect.py 퇴역·함정 2건을 이 주기 상태로 맞췄다. 루트 `CLAUDE.md` 비협상 ⑥을 같은 내용으로 고치고 `AGENTS.md`를 사본으로 동기화 — `diff CLAUDE.md AGENTS.md` exit 0. 전체 게이트 520건.
+- **E5 관찰 프로토콜 추기** (커밋 `2a9a6f0`) — `docs/관찰-프로토콜.md` "변경 기록"에 append 8건(머리말 1줄 포함, 기존 줄 삭제·수정 0 — `git diff --numstat` 삭제 0). ① 기준선 이월 규칙 ② 기구 변경 E0·E1·E2·E4(커밋 해시 명기, E3는 조회 표면이라 제외) ③ 관측 무대 변화(`protect-live-reports` 기대 발동 0 수렴, `block-dangerous-git` 단독 의존) ④ 관측 범위 소급 정정(2026-08-29~09-01 구간은 사실상 reject-bench 세션만) ⑤ 자기차단 산입 규칙 + **D12 두 선등록**(종료 조건은 그-외 파티션으로 판정 / `insufficient_context` 임계 확정 5건 이상에서 50% 이상, 전체 지표 기준) ⑥ 본문 vs 변경 기록 승자 규칙(변경 기록 안) ⑦ 이월 누계 표기(현재 0건) ⑧ ADR 0001 부분 supersede. `docs/adr/0001-…md`는 frontmatter `status: partially superseded`와 끝의 "Supersede 기록" 절만 더했다(본문 보존).
 - **E4 v0 수집기 완전 퇴역** (커밋 `e439c82`) — 사용자 전역 `~/.claude/settings.json`에서 `hooks/collect.py` 호출 4건만 제거(22→18건, 최상위 키 16 그대로, 남는 훅이 없는 `PermissionDenied`는 이벤트 키 제거, 래퍼 배선 불변), 저장소에서 `hooks/collect.py` 삭제, `docs/배선-목록.md`·`README.md` 갱신. 스냅샷 `~/.claude/settings.json.rejectbench-pre-e4-20260902`(E0 스냅샷과 함께 남긴다). 편집·검증 3종·원자 교체·복원을 한 스크립트에 박았고 복원은 발동하지 않았다. 스크립트와 별도의 읽기 조회로 재검증: 유효 JSON / collect.py 0건 / 래퍼 1건, 스냅샷 대비 diff는 제거 줄만(collect.py 줄 4·추가 0). 캡처 표는 `docs/배선-목록.md`의 "E4 v0 수집기 퇴역" 절. 전체 게이트 520건(연속성 훅 테스트 잔존).
 - **E3 조회 표면 가림 확장** (커밋 `cc1d635`) — `mcp_server.OutputBoundary`가 저장 세션 ID를 출력 시점 모양으로 두 부류로 가른다: `records.split_session_id`로 분해한 원본이 **UUID 문법**(`_UUID_SYNTAX`, §4 술어 아님)이면 복합값·원본 둘 다 **무경계 부분문자열** needle로 같은 별칭에, 그 외(자리표시·비준수·`:` 없는 값)는 002 토큰 경계 유지. needle → 정본 저장 ID 표(`_needles`) 하나로 통합했고 단일 패스·긴 needle 우선·홈 치환 전 별칭화는 그대로. 신규 테스트 9건(파묻힘 양성 대조·자리표시/비준수 비훼손·날짜꼴/hex/event_id 불변·코너 규정·stdio 왕복·첫-콜론 분해·접두 겹침), 전체 게이트 520건 통과. **실기동 왕복**: 하드 게이트 3 명령을 저장소 밖 cwd에서 임시 store로 별도 기동해 `guard_evidence` 호출 → 원본 0회, `reason: "transcript /x/S1.jsonl; glued fooS1bar; whole S1"`. 돌연변이 7/7 red(둘은 처음 살아남아 픽스처를 더했다 — 접두 겹침 `claude:s`/`claude:s-1` 자유 텍스트는 002 이후 한 번도 없던 픽스처). `rejectbench/AGENTS.md:27·:29`와 루트 `CLAUDE.md`/`AGENTS.md` ⑥은 **이제 낡았다** — E6가 갱신한다.
 - **E2 세션 ID 적재 형식 규칙** (커밋 `73070dd`) — `records.py`에 분해 함수 `split_session_id`(첫 `:` 기준, 이후 전부가 원본)·술어 `session_id_format`·명명 상수 `SESSION_ID_RAW_RULE`(8~128, `[A-Za-z0-9_-]`)·`SessionIdFormat` 3상 enum·`GuardEvent.session_id_format`(기본값 `unchecked`, `null` 불허)·`SCHEMA_VERSION` 7.1·파서 완화(`guard_event`이고 누락 키가 `session_id_format` 하나일 때만 `unchecked`, 호출자 dict 무변경). `recorder.py`는 자리표시면 `unchecked`, 술어 예외도 `unchecked`(폴백은 `assemble_event` 안에서 닫힘), `_sensitive_values`가 원본 needle을 페이로드가 아니라 `split_session_id`로 얻는다(자리표시 `unknown`은 needle 아님 — 음성 대조로 고정). 신규 테스트 39건(records 31·recorder 8), 전체 게이트 511건 통과, 저장소 밖 import 스모크 3회 OK.
@@ -40,11 +41,9 @@
 
 ## 다음 할 일 (구체적 첫 행동 1개)
 
-**E6 — `rejectbench/AGENTS.md`의 비노출 불변식 문단부터 갱신한다.** "불변식" 절의 "조회 표면의 비노출은 출력 직전 단일 경계다" 문단에서 "단어에 붙은 동일 부분문자열은 … 보존한다" 문장과, "비노출은 양성 대조로만 통과된다" 문단의 "임의 부분문자열까지 0회를 보장하려면 먼저 세션 ID 문법 또는 typed provenance를 적재 계약에 추가해야 한다" 문장이 E3로 낡았다. 새 계약으로 바꾼다: 저장 세션 ID를 `records.split_session_id`로 분해해 원본이 **UUID 문법**이면 복합값·원본 둘 다 단어-속-포함까지 같은 별칭(원문 0회 보장), 그 외(자리표시·비준수·`:` 없는 값)는 토큰 경계 유지, 잔여 한계 둘(조각은 매칭 대상 아님 — E1이 이 사건 민감값 세 종의 새 파편만 막고 `judge.py`의 판정 사유 절단은 맹목 그대로 / UUID 비충족 원본 단독 등장은 원문 노출 가능). 양성 대조 문단에는 "파묻힌 UUID 픽스처"를 요구로 추가한다. 모듈 맵의 `records` 줄에 세션 ID 분해·형식 술어가 생겼음을, `recorder` 줄에 절단 되물림·형식 진단을 한 줄씩 더한다. `hooks/` 경계 줄의 "(퇴역은 별도 결정)"은 collect.py 퇴역 완료로 고친다.
+**E7의 첫 체크박스 — 실패 테스트를 먼저 쓴다.** `tests/test_report.py`에 도구개발(`project == "reject-bench"`)/그-외 사건이 섞인 임시 store 픽스처를 만들고, `operation_event_ids` 파생 지표 전부(정책 불일치율·불필요 차단율·불일치율·`correct_but_unnecessary`·`incorrect_but_useful`·운영 사건 수·판정/검토 미처리·보류 현황·증거 기반 결정 완료율)에 **전체·도구개발·그-외 세 값**이 각각 맞게 나오고, 분모 0인 파티션은 `미검증`으로 렌더링되며, **대표값은 그-외**라는 문면이 보고서에 있고, 스키마 버전 헤더가 기록기 현행(7.1)과 스냅샷 실존 집합(`{7.0}` 등)을 **다르면 병기·같으면 한 값**으로 내는지 단언한다. 합산 검산을 넣지 않는다는 사실도 테스트로 고정한다(결정 완료율은 가드 단위라 두 벌의 합이 전체와 다를 수 있음 — 한 가드가 전체에서는 판정 가능이면서 어느 파티션에서도 불가인 픽스처). 미적용 대상(손실·정정·강등·손상 줄·총 레코드·시험/unknown/unregistered 집계·기준선·교정 사이드카·가드별 표의 `project` 열)은 단일 값 그대로.
 
-그다음 루트 `CLAUDE.md` 비협상 ⑥을 같은 내용으로 고치고 루트 `AGENTS.md`를 **동일 내용**으로 맞춘 뒤 `diff CLAUDE.md AGENTS.md` exit 0을 확인한다(현재 두 파일이 이미 동일한지 먼저 `diff`로 본다). 이 파일(`HANDOFF.md`)의 미결·함정은 이 주기 상태로 갱신한다. 커밋 `docs: update canonical docs for the extended redaction contract`.
-
-그 뒤 **E7**(보고서 파티션 — `rejectbench/report.py`·`tests/test_report.py`, 실패 테스트 먼저: 도구개발/그-외 섞인 픽스처에서 세 값이 맞고 분모 0 파티션이 `미검증`으로 렌더링, 스키마 버전 헤더에 기록기 현행 7.1 + 스냅샷 실존 집합 `{7.0}` 병기, 합산 검산 금지 테스트). 커밋 `feat: partition operation metrics by tool-development origin`.
+red 확인 후 `.dryforge/spec.md` §9대로 `rejectbench/report.py`에 구현한다 — 지표 정의는 `metrics`의 단일 정의를 재사용하고 재정의하지 않는다(파티션은 사건 집합을 가른 `Dataset` 사본이 아니라 `operation_event_ids`의 부분집합으로 계산하는 쪽이 안전한지 먼저 `metrics.py`·`report.py`를 읽고 정한다). 비노출 계약(홈 경로·세션 식별자·사건 id·enforcement 경로·guard_hint 미렌더링) 회귀 확인. 커밋 `feat: partition operation metrics by tool-development origin`. 그 뒤 완료 게이트(`uv run pytest` exit 0 캡처 + 정본 3종 갱신 확인)를 점검하고 사용자에게 **push·PR 여부**를 묻는다 — push는 사용자 요청 시만.
 
 ## 미결 결정
 
@@ -60,7 +59,7 @@
 
    **그리고 확정값은 실행 순서가 정했다.** 확정 판정은 사건별 최신 레코드인데, 두 번째 모델을 `--rejudge`로 나중에 돌렸기 때문에 gpt-5-mini의 답이 전부 확정이 됐다. 순서를 뒤집었으면 정책 불일치율이 0/4가 아니라 4/6이 됐을 것이다. **불일치율 83%와 이 순서 의존성은 어느 선등록 규칙에도 안 걸린다** — O2에서 "판정기가 증거로 쓸 만한가"를 별도로 판단해야 한다. 임계를 하나 더 선등록할지도 미결이다.
 3. **가드 자체의 수명주기 결정** — 오탐 구조(명령 문자열 전문 매칭, 인용·heredoc 무구분)는 O2의 `keep`/`modify` 재료다. **지금 고치지 말 것** — 관측 중 가드를 바꾸면 기구 변경이 또 하나 는다.
-4. **MCP 서버 전역 등록** — 다음 주기. E0이 교차 저장소 사건을 실제로 만든 뒤 판단한다.
+4. **MCP 서버 전역 등록** — 다음 주기. E0이 교차 저장소 사건을 실제로 만든 뒤 판단한다(2026-09-02 현재 그-외 사건 0건 — 아직 판단 재료가 없다).
 5. **외부 검증(X1)** — O2 뒤에만.
 6. **판정 사유 적재의 맹목 절단** — `judge.py:665-666`이 `PolicyVerdict.reason`을 되물림 없이 4000자에서 자르고, 판정 프롬프트가 `rubric.py:117`의 `target_path`(홈 절대 경로)와 `:120`의 사유 텍스트를 실으므로 **E1이 없앤 것과 같은 세 종의 파편**을 계속 만든다. 그 파편은 `mcp_server.py:361`로 나가면서 출력 경계를 그대로 통과한다(실행 재현).
    **2026-09-02 처분(결정기록 D11)**: **계약 문면만 고쳤다** — `spec.md` §3 보장 범위에 "적재 경로로도 한정된다"를, §5 첫 잔여 한계에 판정 사유 경로를 넣었다. **코드는 다음 주기**다. 노출이 오늘 0이고(`PolicyVerdict.reason` 실측 최대 226자 = 상한의 5.7%, `rubric.py:49`가 "한두 문장" 지시), E1의 작업 대상은 두 파일뿐이며, judge.py를 고치면 E5②가 고정한 기구 변경 목록에 다섯 번째가 붙기 때문이다.

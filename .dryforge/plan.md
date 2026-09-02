@@ -119,11 +119,11 @@
 
 의존: E3 (갱신 대상이 E3 구현으로 확정된다). spec §8.
 
-- [ ] `rejectbench/AGENTS.md` 비노출 서술 갱신 — `:27`의 "단어에 붙은 동일 부분문자열은 … 보존한다"와 `:29`의 "임의 부분문자열까지 0회를 보장하려면 먼저 세션 ID 문법 … 을 적재 계약에 추가해야 한다"가 E3로 낡는다
-- [ ] 루트 `CLAUDE.md` 비협상 ⑥ 갱신(준수 부류 부분문자열 별칭화 + 잔여 한계 둘)
-- [ ] 루트 `AGENTS.md`를 같은 내용으로 갱신
-- [ ] 루트 `HANDOFF.md` 미결 목록·함정을 이 주기 상태로 갱신
-- [ ] **`diff CLAUDE.md AGENTS.md` exit 0** 확인
+- [x] `rejectbench/AGENTS.md` 비노출 서술 갱신 — 낡은 두 문장을 두 부류 계약(UUID 문법 준수 → 단어-속-포함까지 동일 별칭 / 그 외 → 토큰 경계)과 "자격은 E2 술어가 아니다"로, 양성 대조 문단에 파묻힌 UUID·비훼손·타임스탬프/해시/event_id 불변 픽스처 요구와 **잔여 한계 둘**을 넣었다. 더불어 모듈 맵의 `records`(분해 함수·진단 술어·파서 완화)·`recorder`(절단 되물림·형식 진단·폴백) 줄, 전문 저장 금지 항목의 절단 되물림 한 줄, `hooks/` 경계의 collect.py 퇴역, 함정 2건(작업 트리 전역 해석 + import 스모크 / `session_id_format`은 게이트가 아니고 E3 자격과 분리)을 갱신했다
+- [x] 루트 `CLAUDE.md` 비협상 ⑥ 갱신 — 준수 부류 부분문자열 별칭화 + 그 외 토큰 경계 + 잔여 한계 둘
+- [x] 루트 `AGENTS.md`를 `CLAUDE.md` 사본으로 동기화
+- [x] 루트 `HANDOFF.md` — 미결 목록·함정을 이 주기 상태로(E6 완료, E7 대기)
+- [x] **`diff CLAUDE.md AGENTS.md` exit 0** 확인 + `uv run pytest` 520건 통과
 
 작업 대상: [파일] `rejectbench/AGENTS.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`.
 검증 게이트: `diff CLAUDE.md AGENTS.md` exit 0 + `uv run pytest` 전체 통과.
